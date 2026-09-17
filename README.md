@@ -11,6 +11,7 @@ Routenplaner für Roller-/Motorradfahrer, der die Route mit den **wenigsten Ampe
 - Favoriten (z. B. die tägliche Strecke Zuhause ↔ Arbeit), gespeichert im Browser (localStorage).
 - **Verkehrsregeln**: Abbiegeverbote/-gebote aus OpenStreetMap (`no_left_turn`, `only_straight_on`, …) werden respektiert – die Route schlägt keine Abbiegung vor, die dort verboten ist.
 - **Echtzeit-Navigation**: Turn-by-Turn-Anweisungen mit Live-Standort (GPS), automatischer Fortschrittsanzeige und automatischer Neuberechnung, wenn du von der Route abweichst.
+- **Design im Stil von Apple Maps**: Vollbild-Karte als Hintergrund, ein schwebendes Glas-Panel (Blur-Effekt) für Suche/Favoriten/Routenoptionen – auf dem Desktop als Karte oben links, auf dem Handy als Bottom-Sheet mit Zieh-Griff. Die Turn-by-Turn-Anweisung erscheint als dunkles Banner oben (mit rotierendem Abbiege-Pfeil), Distanz/Fahrzeit unten – inkl. automatischem Hell-/Dunkelmodus je nach Systemeinstellung.
 
 ## Architektur
 

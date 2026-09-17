@@ -37,6 +37,8 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
     startNavBtn: document.getElementById("start-nav-btn"),
     stopNavBtn: document.getElementById("stop-nav-btn"),
     navPanel: document.getElementById("nav-panel"),
+    navBottomBar: document.getElementById("nav-bottom-bar"),
+    navIcon: document.getElementById("nav-icon"),
     navInstruction: document.getElementById("nav-instruction"),
     navDistanceToManeuver: document.getElementById("nav-distance-to-maneuver"),
     navDistanceRemaining: document.getElementById("nav-distance-remaining"),
@@ -429,8 +431,9 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
       return [x, y];
     };
 
-    // background
-    ctx.fillStyle = "#0d151c";
+    // background - a flat "map-ish" tone, matching the light/dark app theme
+    const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    ctx.fillStyle = prefersDark ? "#1c1c1e" : "#e5e2da";
     ctx.fillRect(0, 0, width, height);
 
     // draw non-selected routes first (thinner, dimmed), selected route last (on top, bold)
@@ -551,6 +554,8 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
     nav.active = true;
     el.planningSection.classList.add("hidden");
     el.navPanel.classList.remove("hidden");
+    el.navBottomBar.classList.remove("hidden");
+    el.legend.classList.add("hidden");
     setNavStatus("Suche GPS-Position …");
 
     nav.watchId = navigator.geolocation.watchPosition(onPositionUpdate, onPositionError, {
@@ -570,7 +575,9 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
     nav.maneuverDistances = null;
     clearLiveMarker();
     el.navPanel.classList.add("hidden");
+    el.navBottomBar.classList.add("hidden");
     el.planningSection.classList.remove("hidden");
+    el.legend.classList.remove("hidden");
   }
 
   function onPositionError(err) {
@@ -607,12 +614,13 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
 
     const maneuver = nav.route.maneuvers[progress.activeManeuverIndex];
     el.navInstruction.textContent = maneuver.instruction;
+    el.navIcon.dataset.turn = maneuver.type;
     el.navDistanceToManeuver.textContent =
       progress.activeManeuverIndex === nav.route.maneuvers.length - 1
         ? `noch ${formatDistance(progress.distanceRemainingMeters)}`
         : `in ${formatDistance(progress.distanceToManeuverMeters)}`;
 
-    el.navDistanceRemaining.textContent = `${formatDistance(progress.distanceRemainingMeters)} verbleibend`;
+    el.navDistanceRemaining.textContent = formatDistance(progress.distanceRemainingMeters);
     const fractionRemaining = nav.route.distanceMeters > 0 ? progress.distanceRemainingMeters / nav.route.distanceMeters : 0;
     el.navTimeRemaining.textContent = formatDuration(nav.route.estimatedTimeSec * fractionRemaining);
   }
