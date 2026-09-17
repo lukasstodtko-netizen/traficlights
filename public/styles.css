@@ -331,10 +331,32 @@ button[type="submit"]:disabled {
   min-height: 420px;
   overflow: hidden;
 }
-#map-canvas {
+#map-canvas,
+#map-libre {
   width: 100%;
   height: 100%;
   display: block;
+}
+.hidden {
+  display: none !important;
+}
+.map-fallback-note {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  background: rgba(13, 21, 28, 0.85);
+  border: 1px solid var(--panel-border);
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  padding: 5px 10px;
+  border-radius: 20px;
+}
+
+/* MapLibre's own attribution/controls should sit comfortably above our legend */
+.maplibregl-ctrl-bottom-left {
+  bottom: 60px !important;
 }
 .legend {
   position: absolute;

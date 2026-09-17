@@ -6,6 +6,14 @@
   <title>TrafiLights – Ampel-optimierte Rollerroute</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/styles.css" />
+  <!--
+    Real map tiles (MapLibre GL JS + OpenStreetMap raster tiles) are loaded from a CDN.
+    If the CDN or the tile servers are unreachable (offline, restrictive network policy, …),
+    app.js detects this and falls back to the built-in Canvas map further down, so the app
+    keeps working either way.
+  -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" onerror="window.__maplibreLoadFailed = true"></script>
 </head>
 <body>
   <header class="app-header">
@@ -73,8 +81,12 @@
     </section>
 
     <section class="map-section">
+      <div id="map-libre"></div>
       <canvas id="map-canvas"></canvas>
       <div class="legend" id="legend"></div>
+      <p class="map-fallback-note hidden" id="map-fallback-note">
+        Echte Kartenkacheln (OpenStreetMap) nicht erreichbar – zeige schematische Karte.
+      </p>
     </section>
   </main>
 

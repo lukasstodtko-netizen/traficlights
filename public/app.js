@@ -35,12 +35,19 @@
     results: document.getElementById("results"),
     routeCards: document.getElementById("route-cards"),
     canvas: document.getElementById("map-canvas"),
+    mapLibreDiv: document.getElementById("map-libre"),
+    mapFallbackNote: document.getElementById("map-fallback-note"),
     legend: document.getElementById("legend"),
     favoritesList: document.getElementById("favorites-list"),
     saveFavoriteBtn: document.getElementById("save-favorite-btn"),
   };
 
   const ctx = el.canvas.getContext("2d");
+
+  // Real map tiles (MapLibre GL JS + OSM raster tiles) are loaded from a CDN in index.html.
+  // If that CDN or the tile servers can't be reached, we fall back to the built-in Canvas
+  // map further below so the app still works (e.g. offline, or behind a restrictive proxy).
+  const USE_MAPLIBRE = typeof window.maplibregl !== "undefined" && !window.__maplibreLoadFailed;
 
   // ---------- Mode switching ----------
 
@@ -236,7 +243,171 @@
     return `${minutes} min`;
   }
 
-  // ---------- Canvas map ----------
+  // ---------- Map dispatcher (real OSM tiles via MapLibre, or Canvas fallback) ----------
+
+  function drawMap(result) {
+    if (USE_MAPLIBRE) {
+      drawMapLibre(result);
+    } else {
+      drawCanvasMap(result);
+    }
+    renderLegend();
+  }
+
+  // ---------- MapLibre (real OpenStreetMap tiles) ----------
+
+  const mapLibreState = {
+    map: null,
+    ready: false,
+    pendingResult: null,
+    lastRenderedResult: null,
+    startMarker: null,
+    endMarker: null,
+  };
+
+  function initMapLibre() {
+    if (!USE_MAPLIBRE) {
+      el.mapLibreDiv.classList.add("hidden");
+      el.mapFallbackNote.classList.remove("hidden");
+      return;
+    }
+
+    el.canvas.classList.add("hidden");
+
+    // Plain OSM raster tiles - no API key needed. For real production traffic beyond
+    // light personal use, OSM's tile usage policy asks you to run your own tile server
+    // or use a supported provider instead of hotlinking tile.openstreetmap.org.
+    const style = {
+      version: 8,
+      sources: {
+        osm: {
+          type: "raster",
+          tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+          tileSize: 256,
+          attribution: "&copy; OpenStreetMap contributors",
+        },
+      },
+      layers: [{ id: "osm", type: "raster", source: "osm" }],
+    };
+
+    const map = new maplibregl.Map({
+      container: "map-libre",
+      style,
+      center: [13.4, 52.5],
+      zoom: 12,
+    });
+    map.addControl(new maplibregl.NavigationControl(), "top-right");
+    mapLibreState.map = map;
+
+    map.on("load", () => {
+      for (const key of ROUTE_ORDER) {
+        map.addSource(`route-${key}`, { type: "geojson", data: emptyFeatureCollection() });
+        map.addLayer({
+          id: `route-${key}`,
+          type: "line",
+          source: `route-${key}`,
+          layout: { "line-join": "round", "line-cap": "round" },
+          paint: {
+            "line-color": ROUTE_META[key].color,
+            "line-width": 3,
+            "line-opacity": 0.35,
+          },
+        });
+      }
+      map.addSource("lights", { type: "geojson", data: emptyFeatureCollection() });
+      map.addLayer({
+        id: "lights",
+        type: "circle",
+        source: "lights",
+        paint: {
+          "circle-radius": 6,
+          "circle-color": "#ffd23f",
+          "circle-stroke-color": "#1a1206",
+          "circle-stroke-width": 1.5,
+        },
+      });
+
+      mapLibreState.ready = true;
+      if (mapLibreState.pendingResult) {
+        const pending = mapLibreState.pendingResult;
+        mapLibreState.pendingResult = null;
+        drawMapLibre(pending);
+      }
+    });
+
+    map.on("error", (e) => {
+      console.error("MapLibre-Fehler (z. B. Kartenkacheln nicht erreichbar):", e?.error || e);
+    });
+  }
+
+  function emptyFeatureCollection() {
+    return { type: "FeatureCollection", features: [] };
+  }
+
+  function lineFeature(coordinates) {
+    return { type: "Feature", geometry: { type: "LineString", coordinates }, properties: {} };
+  }
+
+  function drawMapLibre(result) {
+    if (!mapLibreState.ready) {
+      mapLibreState.pendingResult = result;
+      return;
+    }
+
+    const map = mapLibreState.map;
+    const { routes, start, end } = result;
+    const isNewResult = mapLibreState.lastRenderedResult !== result;
+
+    for (const key of ROUTE_ORDER) {
+      const route = routes[key];
+      const source = map.getSource(`route-${key}`);
+      if (!source) continue;
+      source.setData(route ? lineFeature(route.coordinates) : emptyFeatureCollection());
+      const isSelected = key === state.selectedRouteKey;
+      map.setPaintProperty(`route-${key}`, "line-opacity", isSelected ? 1 : 0.35);
+      map.setPaintProperty(`route-${key}`, "line-width", isSelected ? 5 : 3);
+    }
+
+    const selectedRoute = routes[state.selectedRouteKey];
+    const lightsSource = map.getSource("lights");
+    if (lightsSource) {
+      const features = (selectedRoute?.trafficLights || []).map((light) => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [light.lon, light.lat] },
+        properties: {},
+      }));
+      lightsSource.setData({ type: "FeatureCollection", features });
+    }
+
+    if (isNewResult) {
+      if (mapLibreState.startMarker) mapLibreState.startMarker.remove();
+      if (mapLibreState.endMarker) mapLibreState.endMarker.remove();
+      mapLibreState.startMarker = new maplibregl.Marker({ color: "#35c4c9" })
+        .setLngLat([start.lon, start.lat])
+        .setPopup(new maplibregl.Popup({ offset: 16 }).setText("Start"))
+        .addTo(map);
+      mapLibreState.endMarker = new maplibregl.Marker({ color: "#ff5470" })
+        .setLngLat([end.lon, end.lat])
+        .setPopup(new maplibregl.Popup({ offset: 16 }).setText("Ziel"))
+        .addTo(map);
+
+      const allCoords = ROUTE_ORDER.flatMap((key) => routes[key]?.coordinates || []);
+      if (allCoords.length > 0) {
+        const lons = allCoords.map((c) => c[0]);
+        const lats = allCoords.map((c) => c[1]);
+        map.fitBounds(
+          [
+            [Math.min(...lons), Math.min(...lats)],
+            [Math.max(...lons), Math.max(...lats)],
+          ],
+          { padding: 60, maxZoom: 17, duration: 400 }
+        );
+      }
+      mapLibreState.lastRenderedResult = result;
+    }
+  }
+
+  // ---------- Canvas map (fallback when real map tiles aren't available) ----------
 
   function resizeCanvasToDisplaySize() {
     const dpr = window.devicePixelRatio || 1;
@@ -251,7 +422,7 @@
     return { width, height };
   }
 
-  function drawMap(result) {
+  function drawCanvasMap(result) {
     const { width, height } = resizeCanvasToDisplaySize();
     ctx.clearRect(0, 0, width, height);
 
@@ -332,8 +503,6 @@
     // start / end markers
     drawPin(project([start.lon, start.lat]), "#35c4c9", "S");
     drawPin(project([end.lon, end.lat]), "#ff5470", "Z");
-
-    renderLegend();
   }
 
   function drawPin([x, y], color, label) {
@@ -361,7 +530,8 @@
   }
 
   window.addEventListener("resize", () => {
-    if (state.lastResult) drawMap(state.lastResult);
+    if (mapLibreState.map) mapLibreState.map.resize();
+    if (state.lastResult && !USE_MAPLIBRE) drawCanvasMap(state.lastResult);
   });
 
   // ---------- Favorites ----------
@@ -449,6 +619,7 @@
 
   // ---------- Init ----------
 
+  initMapLibre();
   loadDemoPlaces();
   renderFavorites();
 })();

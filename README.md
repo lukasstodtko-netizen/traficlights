@@ -8,6 +8,7 @@ Routenplaner für Roller-/Motorradfahrer, der die Route mit den **wenigsten Ampe
 - Ampeln werden auf der Karte markiert.
 - **Demo-Modus**: eine kleine synthetische Beispielstadt, läuft komplett offline, kein Internetzugang nötig – ideal zum sofortigen Ausprobieren.
 - **Live-Modus**: echte Adresssuche (Nominatim) und echtes Straßennetz inkl. Ampeln (OpenStreetMap/Overpass API) – benötigt Internetzugang.
+- **Echte Kartenkacheln**: Wenn im Browser Internetzugang zu OpenStreetMap-Kartendiensten besteht, zeigt die App eine echte Karte (MapLibre GL JS + OSM-Kacheln) mit Zoom/Pan, farbigen Routenlinien und anklickbaren Ampel-/Start-/Zielmarkern. Ist das nicht der Fall, fällt sie automatisch auf eine schematische Canvas-Ansicht zurück (siehe unten).
 - Favoriten (z. B. die tägliche Strecke Zuhause ↔ Arbeit), gespeichert im Browser (localStorage).
 
 ## Architektur
@@ -21,13 +22,16 @@ Bewusst **ohne Build-Tools und ohne externe npm-Pakete** umgesetzt:
   - `routing.js` – Dijkstra-Routing; die "wenigste Ampeln"-Variante gewichtet jeden Ampel-Knoten mit einer sehr hohen Zusatzkoste, sodass zuerst die Ampelanzahl und erst danach die Distanz minimiert wird (lexikografische Optimierung).
   - `sampleData.js` / `demo.js` – die synthetische Demo-Stadt für den Offline-Modus.
   - `index.js` – HTTP-Server: API-Endpunkte + Ausliefern des Frontends.
-- `public/` – Frontend als reines HTML/CSS/JavaScript (keine Frameworks), inkl. Canvas-basierter Kartenansicht.
+- `public/` – Frontend als reines HTML/CSS/JavaScript (keine Frameworks, kein Build-Schritt).
+  - `app.js` enthält zwei Karten-Renderer: eine echte Karte via **MapLibre GL JS** (aus einem CDN geladen, OSM-Rasterkacheln als Kartenhintergrund) und eine Canvas-Ansicht als Fallback.
 
-### Wieso keine echten Kartenkacheln (z. B. Mapbox/MapLibre + OSM-Tiles)?
+### Wieso zwei Karten-Renderer (MapLibre + Canvas-Fallback)?
 
-Die Karte wird aktuell selbst gezeichnet (Canvas, Straßen/Route als Linien, keine Kachel-Bilder). Grund: In der Entwicklungs-Sandbox, in der dieses Projekt gebaut wurde, sind sowohl der npm-Registry-Zugriff als auch externe Kartendienste (Overpass, Nominatim, Tile-Server) durch eine Netzwerk-Policy blockiert – React/Vite/MapLibre ließen sich dort nicht installieren oder testen. Die App wurde deshalb bewusst abhängigkeitsfrei gebaut, damit sie sofort läuft und sich vollständig (inkl. Browser-Test) verifizieren ließ.
+`index.html` lädt MapLibre GL JS per `<script>`-Tag von einem CDN (unpkg). Schlägt das fehl (kein Internetzugang, Firmen-/Schul-Proxy blockiert CDN oder Kartenkacheln, o. Ä.), erkennt `app.js` das automatisch (`USE_MAPLIBRE`-Check) und zeichnet stattdessen die Route schematisch auf einem `<canvas>` – ohne echtes Kartenbild, aber mit denselben Daten und Interaktionen. Ein kleiner Hinweistext auf der Karte zeigt an, welcher Modus aktiv ist.
 
-**Wenn du die App auf deinem eigenen Rechner (mit normalem Internetzugang) betreibst**, funktioniert der Live-Modus wie vorgesehen. Eine echte Kartenansicht mit OSM-Kacheln lässt sich leicht ergänzen (`public/app.js`, `drawMap()` durch eine MapLibre-Karte ersetzen) – die Routing-Logik im Backend bleibt dabei unverändert.
+Diese Zwei-Wege-Lösung wurde nötig, weil die Entwicklungs-Sandbox, in der dieses Projekt gebaut wurde, jeglichen Zugriff auf npm-Registry, CDNs und Kartendienste (Overpass, Nominatim, Tile-Server) per Netzwerk-Policy blockiert – React/Vite/MapLibre ließen sich dort nicht installieren, und selbst ein per CDN eingebundenes MapLibre konnte dort keine echten Kacheln laden. Der MapLibre-Codepfad wurde stattdessen mit einer lokalen Mock-Implementierung von `maplibregl` verifiziert (Kartenerstellung, Routen-/Ampel-Layer, `fitBounds`-Verhalten) – **auf einem Rechner mit normalem Internetzugang solltest du die echte Kartenansicht trotzdem einmal selbst gegenprüfen**, bevor du dich darauf verlässt.
+
+Hinweis zu den Kartenkacheln: Es wird direkt `tile.openstreetmap.org` verwendet (keine Kosten, kein API-Key). Für mehr als sehr gelegentliche private Nutzung verlangt die [OSM-Tile-Nutzungsrichtlinie](https://operations.osmfoundation.org/policies/tiles/) einen eigenen Tile-Server oder einen unterstützten Anbieter (z. B. MapTiler, Stadia Maps) – für dieses Prototyp-/Pendel-Tool ist die direkte Nutzung in Ordnung.
 
 ## Starten
 
@@ -58,6 +62,6 @@ npm test
 ## Bekannte Grenzen / mögliche nächste Schritte
 
 - **Ampel-Richtungslogik**: OpenStreetMap taggt Ampeln i. d. R. als einzelnen Knoten pro Kreuzung, nicht separat pro Fahrtrichtung. Diese App zählt eine Ampel, sobald die berechnete Route über diesen Knoten fährt – das ist für die allermeisten Kreuzungen korrekt, bildet aber keine Fälle ab, in denen OSM tatsächlich getrennte Signal-Knoten pro Richtung/Spur enthält.
-- **Kartendarstellung**: aktuell schematisch (Canvas-Linien), kein echtes Kartenbild/OSM-Kacheln (siehe oben).
+- **Kartendarstellung**: Der echte Karten-Renderer (MapLibre + OSM-Kacheln) wurde in dieser Sandbox nur über eine Mock-Bibliothek getestet, nicht mit echten Kartenkacheln (siehe oben) – bitte auf deinem eigenen Rechner einmal gegenprüfen.
 - **Turn-by-Turn-Navigation** ist nicht implementiert; die berechnete Route lässt sich aber leicht an eine bestehende Navi-App übergeben (Start-/Zielkoordinaten liegen vor).
 - **Bounding-Box-Größe**: Für sehr lange Pendelstrecken (>~30 km) ist die Overpass-Abfrage ggf. groß/langsam; die Fläche ist aktuell gedeckelt.
