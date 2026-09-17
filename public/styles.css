@@ -259,7 +259,9 @@ label {
   border: none;
   background: transparent;
   flex: 1;
-  padding: 11px 0;
+  padding: 13px 0;
+  min-height: 44px;
+  box-sizing: border-box;
   font-size: 0.95rem;
   color: var(--text);
   min-width: 0;
@@ -312,6 +314,8 @@ label {
 
 button[type="submit"] {
   padding: 13px;
+  min-height: 44px;
+  box-sizing: border-box;
   border-radius: 999px;
   border: none;
   background: var(--accent);
@@ -355,6 +359,9 @@ button[type="submit"]:disabled {
 #save-favorite-btn {
   font-size: 0.72rem;
   padding: 5px 10px;
+  min-height: 44px;
+  min-width: 44px;
+  box-sizing: border-box;
   border-radius: 999px;
   border: none;
   background: var(--input-bg);
@@ -613,8 +620,8 @@ button[type="submit"]:disabled {
 }
 .stop-nav-btn {
   margin-left: auto;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   flex-shrink: 0;
   border-radius: 50%;
   border: none;

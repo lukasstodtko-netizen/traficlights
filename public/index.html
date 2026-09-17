@@ -5,6 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>SmoothRide, fewest-lights routing for scooters</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <!--
+    iOS home-screen app mode: if added to the home screen, this drops Safari's
+    address/tab bar entirely for a true edge-to-edge, app-like screen - the natural
+    extension of the on-page zoom lock (see styles.css) for iPhones with a Dynamic
+    Island or notch. black-translucent lets our own safe-area-inset padding (already
+    used throughout styles.css) draw under the status bar instead of leaving a gap.
+  -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="SmoothRide" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="/styles.css" />
   <!--
     Real map tiles (MapLibre GL JS + OpenStreetMap raster tiles) are loaded from a CDN.
