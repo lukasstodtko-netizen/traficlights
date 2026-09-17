@@ -1,5 +1,11 @@
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 
+// Some infrastructure in front of overpass-api.de rejects requests with no/generic
+// User-Agent (e.g. the default "node" from a serverless runtime) with a bare Apache
+// 406, before the request ever reaches the Overpass application. A descriptive
+// User-Agent avoids that - same reasoning as for the Nominatim client in geocode.js.
+const USER_AGENT = "TrafiLights/1.0 (route planner prototype)";
+
 // Road types a scooter/motorcycle can legally use. Footways, cycleways,
 // pedestrian-only paths etc. are intentionally excluded.
 const DRIVABLE_HIGHWAYS = [
@@ -39,7 +45,11 @@ export async function fetchRoadNetwork(bbox) {
   try {
     response = await fetch(OVERPASS_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+        "User-Agent": USER_AGENT,
+      },
       body: "data=" + encodeURIComponent(query),
       signal: controller.signal,
     });
