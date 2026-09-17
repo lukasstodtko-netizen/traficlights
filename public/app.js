@@ -2,9 +2,9 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
 
 (() => {
   const ROUTE_META = {
-    fewestLights: { label: "Wenigste Ampeln", color: "#ff5470" },
-    fastest: { label: "Schnellste Route", color: "#2ec4b6" },
-    shortest: { label: "Kürzeste Route", color: "#7c9cff" },
+    fewestLights: { label: "Fewest lights", color: "#ff5470" },
+    fastest: { label: "Fastest route", color: "#2ec4b6" },
+    shortest: { label: "Shortest route", color: "#7c9cff" },
   };
   const ROUTE_ORDER = ["fewestLights", "fastest", "shortest"];
 
@@ -14,7 +14,7 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
     lastResult: null, // { start, end, routes }
     selectedRouteKey: "fewestLights",
     favorites: loadFavorites(),
-    livePosition: null, // { lat, lon } while navigating, canvas-fallback only
+    livePosition: null, // { lat, lon } - kept up to date whenever geolocation is available
   };
 
   const el = {
@@ -105,13 +105,13 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
 
   el.form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
-    setStatus("Berechne Route …");
+    setStatus("Calculating route…");
     el.calcBtn.disabled = true;
     el.saveFavoriteBtn.disabled = true;
 
     try {
       if (!state.fromPlace || !state.toPlace) {
-        throw new Error("Bitte Start und Ziel jeweils aus den Vorschlägen auswählen.");
+        throw new Error("Please select both a starting point and destination from the suggestions.");
       }
       const params = new URLSearchParams({
         fromLat: state.fromPlace.lat,
@@ -126,10 +126,10 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
       state.selectedRouteKey = pickDefaultRoute(result.routes);
       renderResults(result.routes);
       drawMap(result);
-      setStatus("Route berechnet.", "ok");
+      setStatus("Route calculated.", "ok");
       el.saveFavoriteBtn.disabled = false;
     } catch (err) {
-      setStatus(err.message || "Unbekannter Fehler", "error");
+      setStatus(err.message || "Unknown error", "error");
       el.results.classList.add("hidden");
     } finally {
       el.calcBtn.disabled = false;
@@ -138,7 +138,7 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
 
   async function parseResponse(res) {
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Anfrage fehlgeschlagen");
+    if (!res.ok) throw new Error(data.error || "Request failed");
     return data;
   }
 
@@ -171,7 +171,7 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
           <div class="title">${meta.label}</div>
           <div class="stats">${(route.distanceMeters / 1000).toFixed(1)} km · ${formatDuration(route.estimatedTimeSec)}</div>
         </div>
-        <div class="lights-count">${route.trafficLightCount}<small>Ampeln</small></div>
+        <div class="lights-count">${route.trafficLightCount}<small>lights</small></div>
       `;
       card.addEventListener("click", () => {
         state.selectedRouteKey = key;
@@ -282,7 +282,7 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
     });
 
     map.on("error", (e) => {
-      console.error("MapLibre-Fehler (z. B. Kartenkacheln nicht erreichbar):", e?.error || e);
+      console.error("MapLibre error (e.g. map tiles unavailable):", e?.error || e);
     });
   }
 
@@ -334,7 +334,7 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
         .addTo(map);
       mapLibreState.endMarker = new maplibregl.Marker({ color: "#ff5470" })
         .setLngLat([end.lon, end.lat])
-        .setPopup(new maplibregl.Popup({ offset: 16 }).setText("Ziel"))
+        .setPopup(new maplibregl.Popup({ offset: 16 }).setText("Destination"))
         .addTo(map);
 
       const allCoords = ROUTE_ORDER.flatMap((key) => routes[key]?.coordinates || []);
@@ -353,31 +353,24 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
     }
   }
 
-  function setLiveMarker(lat, lon, follow) {
+  function setLiveMarker(lat, lon, follow, zoom) {
+    state.livePosition = { lat, lon };
     if (USE_MAPLIBRE) {
       const map = mapLibreState.map;
       if (!map) return;
       if (!mapLibreState.liveMarker) {
-        const el = document.createElement("div");
-        el.className = "live-position-dot";
-        mapLibreState.liveMarker = new maplibregl.Marker({ element: el }).setLngLat([lon, lat]).addTo(map);
+        const dot = document.createElement("div");
+        dot.className = "live-position-dot";
+        mapLibreState.liveMarker = new maplibregl.Marker({ element: dot }).setLngLat([lon, lat]).addTo(map);
       } else {
         mapLibreState.liveMarker.setLngLat([lon, lat]);
       }
-      if (follow) map.easeTo({ center: [lon, lat], duration: 500 });
+      if (follow) map.easeTo({ center: [lon, lat], zoom: zoom ?? map.getZoom(), duration: 600 });
+    } else if (state.lastResult) {
+      drawCanvasMap(state.lastResult);
     } else {
-      state.livePosition = { lat, lon };
-      if (state.lastResult) drawCanvasMap(state.lastResult);
+      drawCanvasLiveOnly(lat, lon);
     }
-  }
-
-  function clearLiveMarker() {
-    if (mapLibreState.liveMarker) {
-      mapLibreState.liveMarker.remove();
-      mapLibreState.liveMarker = null;
-    }
-    state.livePosition = null;
-    if (!USE_MAPLIBRE && state.lastResult) drawCanvasMap(state.lastResult);
   }
 
   // ---------- Canvas map (fallback when real map tiles aren't available) ----------
@@ -393,6 +386,27 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
     el.canvas.style.height = height + "px";
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     return { width, height };
+  }
+
+  function canvasBackgroundColor() {
+    const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    return prefersDark ? "#1c1c1e" : "#e5e2da";
+  }
+
+  // Shown before any route has been calculated yet: just the live position, centered,
+  // so the map isn't blank while the schematic fallback has nothing else to draw.
+  function drawCanvasLiveOnly(lat, lon) {
+    const { width, height } = resizeCanvasToDisplaySize();
+    ctx.fillStyle = canvasBackgroundColor();
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.beginPath();
+    ctx.arc(width / 2, height / 2, 8, 0, Math.PI * 2);
+    ctx.fillStyle = "#4d8dff";
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.stroke();
   }
 
   function drawCanvasMap(result) {
@@ -432,8 +446,7 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
     };
 
     // background - a flat "map-ish" tone, matching the light/dark app theme
-    const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-    ctx.fillStyle = prefersDark ? "#1c1c1e" : "#e5e2da";
+    ctx.fillStyle = canvasBackgroundColor();
     ctx.fillRect(0, 0, width, height);
 
     // draw non-selected routes first (thinner, dimmed), selected route last (on top, bold)
@@ -476,7 +489,7 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
 
     // start / end markers
     drawPin(project([start.lon, start.lat]), "#35c4c9", "S");
-    drawPin(project([end.lon, end.lat]), "#ff5470", "Z");
+    drawPin(project([end.lon, end.lat]), "#ff5470", "D");
 
     if (state.livePosition) {
       const [x, y] = project([state.livePosition.lon, state.livePosition.lat]);
@@ -507,10 +520,10 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
 
   function renderLegend() {
     el.legend.innerHTML = `
-      <div class="row"><span class="dot" style="background:${ROUTE_META.fewestLights.color}"></span> Wenigste Ampeln</div>
-      <div class="row"><span class="dot" style="background:${ROUTE_META.fastest.color}"></span> Schnellste Route</div>
-      <div class="row"><span class="dot" style="background:${ROUTE_META.shortest.color}"></span> Kürzeste Route</div>
-      <div class="row"><span class="dot" style="background:#ffd23f"></span> Ampel (gewählte Route)</div>
+      <div class="row"><span class="dot" style="background:${ROUTE_META.fewestLights.color}"></span> Fewest lights</div>
+      <div class="row"><span class="dot" style="background:${ROUTE_META.fastest.color}"></span> Fastest route</div>
+      <div class="row"><span class="dot" style="background:${ROUTE_META.shortest.color}"></span> Shortest route</div>
+      <div class="row"><span class="dot" style="background:#ffd23f"></span> Traffic light (selected route)</div>
     `;
   }
 
@@ -519,18 +532,20 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
     if (state.lastResult && !USE_MAPLIBRE) drawCanvasMap(state.lastResult);
   });
 
-  // ---------- Real-time turn-by-turn navigation ----------
+  // ---------- Live location (always on) + real-time turn-by-turn navigation ----------
 
   const REROUTE_COOLDOWN_MS = 12000;
+  const INITIAL_LOCATION_ZOOM = 15;
+  const NAV_ZOOM = 17;
 
   const nav = {
     active: false,
-    watchId: null,
     route: null, // the route currently being navigated (one of state.lastResult.routes[key])
     maneuverDistances: null,
     lastRerouteAt: 0,
     rerouting: false,
   };
+  let hasCenteredOnUser = false;
 
   function formatDistance(meters) {
     if (meters < 1000) return `${Math.round(meters / 10) * 10} m`;
@@ -542,9 +557,41 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
     nav.maneuverDistances = maneuverDistancesAlongRoute(route.coordinates, route.maneuvers);
   }
 
+  // A single persistent geolocation watch, started once at app init, powers both the
+  // always-visible "you are here" dot and (when active) turn-by-turn navigation - so
+  // there's only ever one GPS subscription running, not a separate one per feature.
+  function startLiveLocationTracking() {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.watchPosition(handleGeolocationUpdate, handleGeolocationError, {
+      enableHighAccuracy: true,
+      maximumAge: 5000,
+      timeout: 20000,
+    });
+  }
+
+  function handleGeolocationUpdate(position) {
+    if (nav.active) {
+      onPositionUpdate(position);
+      return;
+    }
+    const { latitude: lat, longitude: lon } = position.coords;
+    // The first fix we ever get (before any route exists) centers the map on the
+    // user once; afterwards we leave the view alone so we don't fight the user
+    // panning/zooming around while just browsing.
+    const shouldCenter = !hasCenteredOnUser && !state.lastResult;
+    setLiveMarker(lat, lon, shouldCenter, shouldCenter ? INITIAL_LOCATION_ZOOM : undefined);
+    if (shouldCenter) hasCenteredOnUser = true;
+  }
+
+  function handleGeolocationError(err) {
+    if (nav.active) onPositionError(err);
+    // Otherwise: live location is a nice-to-have outside of active navigation, so a
+    // denied/unavailable permission here fails silently rather than nagging the user.
+  }
+
   el.startNavBtn.addEventListener("click", () => {
     if (!navigator.geolocation) {
-      setNavStatus("Geolocation wird von diesem Browser nicht unterstützt.", "error");
+      setNavStatus("Geolocation is not supported by this browser.", "error");
       return;
     }
     const route = state.lastResult?.routes?.[state.selectedRouteKey];
@@ -556,24 +603,30 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
     el.navPanel.classList.remove("hidden");
     el.navBottomBar.classList.remove("hidden");
     el.legend.classList.add("hidden");
-    setNavStatus("Suche GPS-Position …");
+    setNavStatus("Finding GPS position…");
 
-    nav.watchId = navigator.geolocation.watchPosition(onPositionUpdate, onPositionError, {
-      enableHighAccuracy: true,
-      maximumAge: 2000,
-      timeout: 15000,
-    });
+    if (USE_MAPLIBRE && mapLibreState.map) {
+      const center = state.livePosition
+        ? [state.livePosition.lon, state.livePosition.lat]
+        : route.coordinates[0];
+      mapLibreState.map.easeTo({ center, zoom: NAV_ZOOM, duration: 800 });
+    }
+
+    // The persistent geolocation watch (started at app init) only fires again once
+    // the position actually changes - if we already have a fix from before nav
+    // started, use it right away instead of leaving the banner on "Finding GPS
+    // position…" until the rider physically moves.
+    if (state.livePosition) {
+      updateNavigationForPosition(state.livePosition.lat, state.livePosition.lon);
+    }
   });
 
   el.stopNavBtn.addEventListener("click", stopNavigation);
 
   function stopNavigation() {
-    if (nav.watchId != null) navigator.geolocation.clearWatch(nav.watchId);
     nav.active = false;
-    nav.watchId = null;
     nav.route = null;
     nav.maneuverDistances = null;
-    clearLiveMarker();
     el.navPanel.classList.add("hidden");
     el.navBottomBar.classList.add("hidden");
     el.planningSection.classList.remove("hidden");
@@ -581,12 +634,15 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
   }
 
   function onPositionError(err) {
-    setNavStatus(`GPS-Fehler: ${err.message}`, "error");
+    setNavStatus(`GPS error: ${err.message}`, "error");
   }
 
-  async function onPositionUpdate(position) {
+  function onPositionUpdate(position) {
+    updateNavigationForPosition(position.coords.latitude, position.coords.longitude);
+  }
+
+  function updateNavigationForPosition(lat, lon) {
     if (!nav.active || !nav.route) return;
-    const { latitude: lat, longitude: lon } = position.coords;
 
     setLiveMarker(lat, lon, true);
 
@@ -594,7 +650,7 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
 
     if (progress.hasArrived) {
       setNavStatus("");
-      el.navInstruction.textContent = "🏁 Ziel erreicht!";
+      el.navInstruction.textContent = "Arrived!";
       el.navDistanceToManeuver.textContent = "";
       stopNavigationSoon();
       return;
@@ -606,7 +662,7 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
         nav.lastRerouteAt = now;
         rerouteFrom(lat, lon);
       } else {
-        setNavStatus("Abweichung von der Route erkannt …");
+        setNavStatus("Drifted from the route…");
       }
     } else if (!nav.rerouting) {
       setNavStatus("");
@@ -617,8 +673,8 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
     el.navIcon.dataset.turn = maneuver.type;
     el.navDistanceToManeuver.textContent =
       progress.activeManeuverIndex === nav.route.maneuvers.length - 1
-        ? `noch ${formatDistance(progress.distanceRemainingMeters)}`
-        : `in ${formatDistance(progress.distanceToManeuverMeters)}`;
+        ? `${formatDistance(progress.distanceRemainingMeters)} to go`
+        : `In ${formatDistance(progress.distanceToManeuverMeters)}`;
 
     el.navDistanceRemaining.textContent = formatDistance(progress.distanceRemainingMeters);
     const fractionRemaining = nav.route.distanceMeters > 0 ? progress.distanceRemainingMeters / nav.route.distanceMeters : 0;
@@ -634,7 +690,7 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
   async function rerouteFrom(lat, lon) {
     if (!state.toPlace) return;
     nav.rerouting = true;
-    setNavStatus("Route wird neu berechnet …");
+    setNavStatus("Recalculating route…");
     try {
       const params = new URLSearchParams({
         fromLat: lat,
@@ -646,14 +702,14 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
       const result = await parseResponse(res);
       const fallbackKey = pickDefaultRoute(result.routes);
       const newRoute = result.routes[state.selectedRouteKey] || (fallbackKey && result.routes[fallbackKey]);
-      if (!newRoute) throw new Error("Keine neue Route gefunden");
+      if (!newRoute) throw new Error("No new route found");
 
       state.lastResult = result;
       setNavRoute(newRoute);
       drawMap(result);
-      setNavStatus("Neue Route berechnet.", "ok");
+      setNavStatus("New route calculated.", "ok");
     } catch (err) {
-      setNavStatus(`Neuberechnung fehlgeschlagen: ${err.message || err}`, "error");
+      setNavStatus(`Recalculation failed: ${err.message || err}`, "error");
     } finally {
       nav.rerouting = false;
     }
@@ -668,7 +724,7 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
 
   function loadFavorites() {
     try {
-      return JSON.parse(localStorage.getItem("trafilights_favorites") || "[]");
+      return JSON.parse(localStorage.getItem("smoothride_favorites") || "[]");
     } catch {
       return [];
     }
@@ -676,7 +732,7 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
 
   function persistFavorites() {
     try {
-      localStorage.setItem("trafilights_favorites", JSON.stringify(state.favorites));
+      localStorage.setItem("smoothride_favorites", JSON.stringify(state.favorites));
     } catch {
       /* ignore storage errors (e.g. private browsing) */
     }
@@ -687,7 +743,7 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
     for (const fav of state.favorites) {
       const li = document.createElement("li");
       li.className = "favorite-item";
-      li.innerHTML = `<button type="button" class="load">★ ${fav.label}</button><button type="button" class="remove" title="Entfernen">✕</button>`;
+      li.innerHTML = `<button type="button" class="load">★ ${fav.label}</button><button type="button" class="remove" title="Remove">✕</button>`;
       li.querySelector(".load").addEventListener("click", () => applyFavorite(fav));
       li.querySelector(".remove").addEventListener("click", () => {
         state.favorites = state.favorites.filter((f) => f.id !== fav.id);
@@ -726,4 +782,5 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
 
   initMapLibre();
   renderFavorites();
+  startLiveLocationTracking();
 })();

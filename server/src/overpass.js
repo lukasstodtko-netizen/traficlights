@@ -4,7 +4,7 @@ const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 // User-Agent (e.g. the default "node" from a serverless runtime) with a bare Apache
 // 406, before the request ever reaches the Overpass application. A descriptive
 // User-Agent avoids that - same reasoning as for the Nominatim client in geocode.js.
-const USER_AGENT = "TrafiLights/1.0 (route planner prototype)";
+const USER_AGENT = "SmoothRide/1.0 (route planner prototype)";
 
 // Road types a scooter/motorcycle can legally use. Footways, cycleways,
 // pedestrian-only paths etc. are intentionally excluded.
@@ -62,7 +62,7 @@ export async function fetchRoadNetwork(bbox) {
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`Overpass-Anfrage fehlgeschlagen (${response.status}): ${text.slice(0, 300)}`);
+    throw new Error(`Overpass request failed (${response.status}): ${text.slice(0, 300)}`);
   }
 
   const data = await response.json();

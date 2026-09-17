@@ -120,13 +120,13 @@ function dijkstra(adjacency, restrictions, startId, endId, costFn) {
 // change, but it matches every point where a driver actually has to decide
 // something ("this street ends, which way now").
 const TURN_LABELS = {
-  straight: "Weiter geradeaus",
-  "slight-left": "Leicht links halten",
-  "slight-right": "Leicht rechts halten",
-  left: "Links abbiegen",
-  right: "Rechts abbiegen",
-  "sharp-left": "Scharf links abbiegen",
-  "sharp-right": "Scharf rechts abbiegen",
+  straight: "Continue straight",
+  "slight-left": "Keep left",
+  "slight-right": "Keep right",
+  left: "Turn left",
+  right: "Turn right",
+  "sharp-left": "Sharp left",
+  "sharp-right": "Sharp right",
 };
 
 function classifyTurn(bearingBefore, bearingAfter) {
@@ -139,8 +139,8 @@ function classifyTurn(bearingBefore, bearingAfter) {
 }
 
 function maneuverInstruction(turn, streetName) {
-  const label = TURN_LABELS[turn] || "Weiter";
-  return streetName ? `${label} auf ${streetName}` : label;
+  const label = TURN_LABELS[turn] || "Continue";
+  return streetName ? `${label} onto ${streetName}` : label;
 }
 
 function groupIntoSegments(edgesUsed) {
@@ -172,7 +172,7 @@ function buildManeuvers(path, edgesUsed, nodes) {
   const firstNode = nodes.get(path[0]);
   maneuvers.push({
     type: "depart",
-    instruction: segments[0].streetName ? `Losfahren auf ${segments[0].streetName}` : "Losfahren",
+    instruction: segments[0].streetName ? `Head out on ${segments[0].streetName}` : "Head out",
     streetName: segments[0].streetName,
     coordinate: [firstNode.lon, firstNode.lat],
     distanceMeters: Math.round(segments[0].distance),
@@ -197,7 +197,7 @@ function buildManeuvers(path, edgesUsed, nodes) {
   const lastNode = nodes.get(path[path.length - 1]);
   maneuvers.push({
     type: "arrive",
-    instruction: "Ziel erreicht",
+    instruction: "Arrive at destination",
     streetName: null,
     coordinate: [lastNode.lon, lastNode.lat],
     distanceMeters: 0,

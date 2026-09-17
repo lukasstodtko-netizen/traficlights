@@ -1,7 +1,7 @@
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 
 // Nominatim's usage policy requires a descriptive User-Agent identifying the app.
-const USER_AGENT = "TrafiLights/1.0 (route planner prototype)";
+const USER_AGENT = "SmoothRide/1.0 (route planner prototype)";
 
 export async function geocode(query) {
   const url = new URL(NOMINATIM_URL);
@@ -15,7 +15,7 @@ export async function geocode(query) {
   });
 
   if (!response.ok) {
-    throw new Error(`Geocoding fehlgeschlagen (${response.status})`);
+    throw new Error(`Geocoding failed (${response.status})`);
   }
 
   const results = await response.json();

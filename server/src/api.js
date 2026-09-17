@@ -16,12 +16,12 @@ function apiError(statusCode, message) {
 export async function getGeocodeResults(rawQuery) {
   const q = (rawQuery || "").trim();
   if (q.length < 3) {
-    throw apiError(400, "Query-Parameter 'q' (min. 3 Zeichen) erforderlich");
+    throw apiError(400, "Query parameter 'q' (min. 3 characters) is required");
   }
   try {
     return await geocode(q);
   } catch (err) {
-    throw apiError(502, `Geocoding fehlgeschlagen: ${err.message || err}`);
+    throw apiError(502, `Geocoding failed: ${err.message || err}`);
   }
 }
 
@@ -51,7 +51,7 @@ async function getGraphForBbox(bbox) {
 
 export async function getLiveRoute({ fromLat, fromLon, toLat, toLon }) {
   if ([fromLat, fromLon, toLat, toLon].some((v) => Number.isNaN(v))) {
-    throw apiError(400, "fromLat, fromLon, toLat, toLon sind erforderlich");
+    throw apiError(400, "fromLat, fromLon, toLat, toLon are required");
   }
 
   let graph;
@@ -59,22 +59,22 @@ export async function getLiveRoute({ fromLat, fromLon, toLat, toLon }) {
     const bbox = boundingBox(fromLat, fromLon, toLat, toLon);
     graph = await getGraphForBbox(bbox);
   } catch (err) {
-    throw apiError(502, `Routenberechnung fehlgeschlagen: ${err.message || err}`);
+    throw apiError(502, `Route calculation failed: ${err.message || err}`);
   }
 
   const startMatch = findNearestNode(graph.nodes, fromLat, fromLon);
   const endMatch = findNearestNode(graph.nodes, toLat, toLon);
 
   if (!startMatch || !endMatch) {
-    throw apiError(422, "Kein Straßennetz in der Nähe der angegebenen Punkte gefunden");
+    throw apiError(422, "No road network found near the given points");
   }
   if (startMatch.distance > 500 || endMatch.distance > 500) {
-    throw apiError(422, "Start- oder Zielpunkt liegt zu weit vom bekannten Straßennetz entfernt");
+    throw apiError(422, "Start or destination is too far from the known road network");
   }
 
   const routes = computeRoutes(graph, startMatch.node.id, endMatch.node.id);
   if (!routes.fewestLights) {
-    throw apiError(422, "Keine Route zwischen den Punkten gefunden");
+    throw apiError(422, "No route found between the given points");
   }
 
   return {

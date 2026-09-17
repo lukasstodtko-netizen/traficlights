@@ -66,5 +66,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`TrafiLights server listening on http://localhost:${PORT}`);
+  console.log(`SmoothRide server listening on http://localhost:${PORT}`);
 });

@@ -24,9 +24,9 @@ const ROUTE = {
   ),
 };
 const MANEUVERS = [
-  { instruction: "Losfahren", coordinate: ROUTE_COORDS[0] },
-  { instruction: "Rechts abbiegen", coordinate: ROUTE_COORDS[2] },
-  { instruction: "Ziel erreicht", coordinate: ROUTE_COORDS[3] },
+  { instruction: "Head out", coordinate: ROUTE_COORDS[0] },
+  { instruction: "Turn right", coordinate: ROUTE_COORDS[2] },
+  { instruction: "Arrive at destination", coordinate: ROUTE_COORDS[3] },
 ];
 
 test("projectOntoRoute finds the closest point and distance-along-route", () => {

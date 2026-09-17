@@ -1,106 +1,102 @@
-# TrafiLights 🛵
+# SmoothRide
 
-Routenplaner für Roller-/Motorradfahrer, der die Route mit den **wenigsten Ampeln in Fahrtrichtung** findet – statt der kürzesten oder schnellsten Strecke. Hintergrund: Wer sich an Ampeln bis nach vorne durchschlängeln kann, verliert kaum Zeit durch Stau, sondern durch die reine Anzahl der Ampelstopps.
+A route planner for scooter/motorcycle riders that finds the route with the **fewest traffic lights ahead of you** - instead of the shortest or fastest route. Background: if you can filter to the front at a red light, you barely lose time to congestion - the real time cost is the sheer number of light stops.
 
-## Funktionen
+## Features
 
-- Routenberechnung mit drei Varianten zum Vergleich: **wenigste Ampeln**, **schnellste Route**, **kürzeste Route** – jeweils mit Distanz, geschätzter Fahrzeit und Ampelanzahl.
-- Ampeln werden auf der Karte markiert.
-- Echte Adresssuche (Nominatim) und echtes Straßennetz inkl. Ampeln (OpenStreetMap/Overpass API) – benötigt Internetzugang.
-- **Echte Kartenkacheln**: Wenn im Browser Internetzugang zu OpenStreetMap-Kartendiensten besteht, zeigt die App eine echte Karte (MapLibre GL JS + OSM-Kacheln) mit Zoom/Pan, farbigen Routenlinien und anklickbaren Ampel-/Start-/Zielmarkern. Ist das nicht der Fall, fällt sie automatisch auf eine schematische Canvas-Ansicht zurück (siehe unten).
-- Favoriten (z. B. die tägliche Strecke Zuhause ↔ Arbeit), gespeichert im Browser (localStorage).
-- **Verkehrsregeln**: Abbiegeverbote/-gebote aus OpenStreetMap (`no_left_turn`, `only_straight_on`, …) werden respektiert – die Route schlägt keine Abbiegung vor, die dort verboten ist.
-- **Echtzeit-Navigation**: Turn-by-Turn-Anweisungen mit Live-Standort (GPS), automatischer Fortschrittsanzeige und automatischer Neuberechnung, wenn du von der Route abweichst.
-- **Design im Stil von Apple Maps**: Vollbild-Karte als Hintergrund, ein schwebendes Glas-Panel (Blur-Effekt) für Suche/Favoriten/Routenoptionen – auf dem Desktop als Karte oben links, auf dem Handy als Bottom-Sheet mit Zieh-Griff. Die Turn-by-Turn-Anweisung erscheint als dunkles Banner oben (mit rotierendem Abbiege-Pfeil), Distanz/Fahrzeit unten – inkl. automatischem Hell-/Dunkelmodus je nach Systemeinstellung.
+- Route calculation with three variants to compare: **fewest lights**, **fastest route**, **shortest route** - each with distance, estimated travel time, and light count.
+- Traffic lights are marked on the map.
+- Real address search (Nominatim) and a real street network including traffic lights (OpenStreetMap/Overpass API) - requires internet access.
+- **Real map tiles**: when the browser has internet access to OpenStreetMap map services, the app shows a real map (MapLibre GL JS + OSM tiles) with zoom/pan, colored route lines, and clickable light/start/destination markers. Otherwise it automatically falls back to a schematic Canvas view (see below).
+- Favorites (e.g. your daily commute), stored in the browser (localStorage).
+- **Traffic rules**: turn restrictions from OpenStreetMap (`no_left_turn`, `only_straight_on`, …) are respected - the route never proposes a turn that's illegal there.
+- **Real-time navigation**: turn-by-turn instructions with a live location dot (GPS), automatic progress tracking, automatic rerouting if you drift off the route, and the map zooms in once you start navigating.
+- **Design in the style of Apple Maps**: a full-bleed map as the backdrop, a floating glass panel (blur effect) for search/favorites/route options - a card top-left on desktop, a bottom sheet with a drag handle on phones. The turn-by-turn instruction appears as a dark banner at the top (with a rotating turn arrow), distance/time at the bottom - plus automatic light/dark mode based on the system setting.
+- Your current location is always shown on the map, not just while navigating.
 
-## Architektur
+## Architecture
 
-Bewusst **ohne Build-Tools und ohne externe npm-Pakete** umgesetzt:
+Deliberately built **without build tools and without external npm packages**:
 
-- `server/` – Node.js-Backend, nur mit Node-Bordmitteln (`node:http`, `fetch`, …), kein `npm install` nötig.
-  - `overpass.js` – lädt Straßen, Ampeln (`highway=traffic_signals`) und Abbiegeverbote (`relation[type=restriction]`) aus OpenStreetMap via Overpass API.
-  - `geocode.js` – Adresssuche via Nominatim.
-  - `graph.js` – baut aus den OSM-Daten einen gerichteten Graphen (berücksichtigt Einbahnstraßen), entscheidet pro Kreuzung, ob eine Ampel für die jeweilige Fahrtrichtung überhaupt relevant ist, und baut die Abbiegeverbote-Tabelle auf (siehe unten).
-  - `routing.js` – Dijkstra-Routing; die "wenigste Ampeln"-Variante gewichtet jeden Ampel-Knoten mit einer sehr hohen Zusatzkoste, sodass zuerst die Ampelanzahl und erst danach die Distanz minimiert wird (lexikografische Optimierung). Der Zustand pro Dijkstra-Schritt ist (Knoten, angekommen über welche Straße) statt nur (Knoten), damit Abbiegeverbote korrekt greifen können. Erzeugt außerdem Turn-by-Turn-Anweisungen (`maneuvers`) pro Route.
-  - `sampleData.js` – synthetisches Straßennetz, ausschließlich als Fixture für die automatisierten Tests (`test/routing.test.js`) genutzt, nicht Teil der laufenden App.
-  - `index.js` – HTTP-Server: API-Endpunkte + Ausliefern des Frontends.
-- `public/` – Frontend als reines HTML/CSS/JavaScript (keine Frameworks, kein Build-Schritt; `app.js` läuft als ES-Modul).
-  - `app.js` enthält zwei Karten-Renderer: eine echte Karte via **MapLibre GL JS** (aus einem CDN geladen, OSM-Rasterkacheln als Kartenhintergrund) und eine Canvas-Ansicht als Fallback. Außerdem die Echtzeit-Navigation (siehe unten).
-  - `nav-math.js` – reine, abhängigkeitsfreie Geometriefunktionen für die Navigation (Position auf Route projizieren, Fortschritt/Abweichung berechnen) – bewusst von der DOM-/Geolocation-Logik in `app.js` getrennt, damit sie sich mit Node testen lassen.
+- `server/` - Node.js backend, using only Node built-ins (`node:http`, `fetch`, …), no `npm install` needed.
+  - `overpass.js` - loads streets, traffic lights (`highway=traffic_signals`), and turn restrictions (`relation[type=restriction]`) from OpenStreetMap via the Overpass API.
+  - `geocode.js` - address search via Nominatim.
+  - `graph.js` - builds a directed graph from the OSM data (accounting for one-way streets), decides per intersection whether a traffic light is even relevant for a given direction of travel, and builds the turn-restriction lookup (see below).
+  - `routing.js` - Dijkstra routing; the "fewest lights" variant weights every traffic-light node with a very high extra cost, so the light count is minimized first and distance only breaks ties (lexicographic optimization). Each Dijkstra step's state is (node, which street you arrived on) rather than just (node), so turn restrictions can be enforced correctly. Also generates turn-by-turn instructions (`maneuvers`) per route.
+  - `sampleData.js` - a synthetic street network used exclusively as a fixture for the automated tests (`test/routing.test.js`), not part of the running app.
+  - `index.js` - HTTP server: API endpoints + serving the frontend.
+- `public/` - frontend as plain HTML/CSS/JavaScript (no frameworks, no build step; `app.js` runs as an ES module).
+  - `app.js` contains two map renderers: a real map via **MapLibre GL JS** (loaded from a CDN, OSM raster tiles as the map background) and a Canvas view as a fallback. Also drives the real-time navigation (see below).
+  - `nav-math.js` - pure, dependency-free geometry functions for navigation (projecting a position onto the route, computing progress/drift) - deliberately kept separate from the DOM/geolocation glue in `app.js` so it can be unit-tested with Node.
 
-### Wieso zwei Karten-Renderer (MapLibre + Canvas-Fallback)?
+### Why two map renderers (MapLibre + Canvas fallback)?
 
-`index.html` lädt MapLibre GL JS per `<script>`-Tag von einem CDN (unpkg). Schlägt das fehl (kein Internetzugang, Firmen-/Schul-Proxy blockiert CDN oder Kartenkacheln, o. Ä.), erkennt `app.js` das automatisch (`USE_MAPLIBRE`-Check) und zeichnet stattdessen die Route schematisch auf einem `<canvas>` – ohne echtes Kartenbild, aber mit denselben Daten und Interaktionen. Ein kleiner Hinweistext auf der Karte zeigt an, welcher Modus aktiv ist.
+`index.html` loads MapLibre GL JS via a `<script>` tag from a CDN (unpkg). If that fails (no internet access, a corporate/school proxy blocking the CDN or the map tiles, etc.), `app.js` detects it automatically (the `USE_MAPLIBRE` check) and draws the route schematically on a `<canvas>` instead - no real map imagery, but the same data and interactions. A small note on the map indicates which mode is active.
 
-Diese Zwei-Wege-Lösung wurde nötig, weil die Entwicklungs-Sandbox, in der dieses Projekt gebaut wurde, jeglichen Zugriff auf npm-Registry, CDNs und Kartendienste (Overpass, Nominatim, Tile-Server) per Netzwerk-Policy blockiert – React/Vite/MapLibre ließen sich dort nicht installieren, und selbst ein per CDN eingebundenes MapLibre konnte dort keine echten Kacheln laden. Der MapLibre-Codepfad wurde stattdessen mit einer lokalen Mock-Implementierung von `maplibregl` verifiziert (Kartenerstellung, Routen-/Ampel-Layer, `fitBounds`-Verhalten) – **auf einem Rechner mit normalem Internetzugang solltest du die echte Kartenansicht trotzdem einmal selbst gegenprüfen**, bevor du dich darauf verlässt.
+This two-path approach became necessary because the development sandbox this project was built in blocks all access to the npm registry, CDNs, and map services (Overpass, Nominatim, tile servers) via network policy - React/Vite/MapLibre couldn't be installed there, and even a CDN-loaded MapLibre couldn't fetch real tiles. The MapLibre code path was instead verified with a local mock implementation of `maplibregl` (map creation, route/light layers, `fitBounds` behavior, zoom-on-navigate, follow-while-navigating) - **on a machine with normal internet access, you should still double-check the real map view yourself** before relying on it.
 
-Hinweis zu den Kartenkacheln: Es wird direkt `tile.openstreetmap.org` verwendet (keine Kosten, kein API-Key). Für mehr als sehr gelegentliche private Nutzung verlangt die [OSM-Tile-Nutzungsrichtlinie](https://operations.osmfoundation.org/policies/tiles/) einen eigenen Tile-Server oder einen unterstützten Anbieter (z. B. MapTiler, Stadia Maps) – für dieses Prototyp-/Pendel-Tool ist die direkte Nutzung in Ordnung.
+Note on the map tiles: it uses `tile.openstreetmap.org` directly (no cost, no API key). For more than very occasional private use, the [OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/) requires running your own tile server or using a supported provider (e.g. MapTiler, Stadia Maps) - for this prototype/commute tool, direct use is fine.
 
-### Richtungsabhängige Ampelzählung
+### Direction-aware light counting
 
-Der ganze Sinn der App ist, nur die Ampeln zu zählen, die für die eigene Fahrtrichtung wirklich ausschlaggebend sind. `graph.js` prüft dafür pro Kreuzungsknoten:
+The whole point of the app is to only count traffic lights that actually matter for your direction of travel. `graph.js` checks, per intersection node:
 
-1. Trägt OpenStreetMap für den Knoten `traffic_signals:direction` (oder ersatzweise `direction`) mit dem Wert `forward`/`backward`, zählt die Ampel nur für die dazu passende Fahrtrichtung entlang des Straßenverlaufs (die jeweils andere Fahrtrichtung sieht diese Ampel gar nicht erst).
-2. Ist dort stattdessen eine Kompass-Gradzahl hinterlegt (z. B. `direction=70`), wird die tatsächliche Peilung der Anfahrt berechnet und nur gezählt, wenn sie grob (±90°) zur Ampel-Ausrichtung passt.
-3. Ist gar keine Richtung getaggt (der häufigste Fall – eine Kreuzung mit einem gemeinsamen Ampel-Knoten für alle Anfahrten), zählt die Ampel weiterhin für jede Fahrtrichtung, die durch diesen Knoten fährt – das ist für die meisten einfachen Kreuzungen korrekt, da dort ohnehin jede Anfahrt ihre eigene Rotphase hat.
+1. If OpenStreetMap tags the node with `traffic_signals:direction` (or, failing that, `direction`) as `forward`/`backward`, the light only counts for the matching direction of travel along the street (the opposite direction never sees this light at all).
+2. If a compass bearing is tagged instead (e.g. `direction=70`), the actual approach bearing is computed and the light only counts if it roughly (±90°) matches the light's orientation.
+3. If no direction is tagged at all (the most common case - an intersection with one shared light node for every approach), the light still counts for every direction passing through that node - correct for most simple intersections, since each approach there has its own light phase anyway.
 
-Das deckt die Fälle ab, in denen OSM tatsächlich Richtungsinformationen pflegt (z. B. getrennte Ampeln pro Fahrtrichtung auf einer Kreuzung, oder eine Ampel, die nur eine Abbiegespur betrifft); wo OSM keine Richtung hinterlegt hat, bleibt es bei der bisherigen, i. d. R. korrekten Annahme "ein Knoten = eine Ampel für alle Anfahrten".
+This covers the cases where OSM actually maintains direction information (e.g. separate lights per direction at a junction, or a light that only controls one turn lane); where OSM has no direction tagged, it falls back to the previous, generally correct assumption of "one node = one light for every approach."
 
-### Verkehrsregeln: Abbiegeverbote/-gebote
+### Traffic rules: turn restrictions
 
-Die Route respektiert Abbiegeverbote und -gebote aus OpenStreetMap (`relation[type=restriction]`, z. B. `no_left_turn`, `no_u_turn`, `only_straight_on`). Technisch bedeutet das: Der Dijkstra-Zustand ist nicht nur "an welchem Knoten", sondern "an welchem Knoten, angekommen über welche Straße" – nur so lässt sich prüfen, ob die nächste Abbiegung von genau dieser Anfahrt aus verboten ist. Ohne diese Erweiterung könnte die App Routen vorschlagen, die zwar kürzer/ampelärmer wären, aber real verboten sind (und die man als Fahrer:in so gar nicht fahren dürfte).
+The route respects turn restrictions from OpenStreetMap (`relation[type=restriction]`, e.g. `no_left_turn`, `no_u_turn`, `only_straight_on`). Technically: the Dijkstra state isn't just "at which node" but "at which node, having arrived via which street" - only that lets you check whether the next turn is forbidden specifically from that approach. Without this, the app could suggest routes that are shorter/have fewer lights but are actually illegal to drive.
 
-Einschränkungen: Ausgewertet wird die einfache, häufigste Form (`from`-Way → `via`-**Knoten** → `to`-Way). Restriktionen über einen `via`-**Weg** (seltene, komplexe Mehrspur-Kreuzungen) sowie fahrzeugspezifische/bedingte Varianten (`restriction:motorcycle`, `restriction:conditional`) werden nicht ausgewertet – hier gilt weiterhin die normale (unbeschränkte) Kantenlogik.
+Limitations: only the simple, most common shape is evaluated (`from` way → `via` **node** → `to` way). Restrictions via a `via` **way** (rare, complex multi-lane junctions) and vehicle-specific/conditional variants (`restriction:motorcycle`, `restriction:conditional`) are not evaluated - normal (unrestricted) edge logic applies there.
 
-### Echtzeit-Navigation
+### Real-time navigation
 
-Nach der Routenberechnung kann per **"▶ Navigation starten"** eine Turn-by-Turn-Führung gestartet werden:
+After a route is calculated, tapping **"Go"** starts turn-by-turn guidance:
 
-- Nutzt `navigator.geolocation.watchPosition()` für den Live-Standort (Browser-Berechtigung erforderlich; funktioniert auf `localhost` auch ohne HTTPS, sonst nur über HTTPS).
-- Die aktuelle Position wird auf die Route projiziert (`public/nav-math.js`), daraus werden abgeleitet: die aktuell relevante Anweisung, Distanz bis zur nächsten Abbiegung, Distanz/Zeit bis zum Ziel.
-- Weicht die Position mehr als 40 m von der Route ab, wird automatisch (mit 12 s Cooldown, um nicht bei jedem GPS-Wackler neu zu rechnen) eine neue Route von der aktuellen Position zum ursprünglichen Ziel berechnet.
-- Die Ankunftserkennung prüft die direkte Distanz zum Zielpunkt (nicht die Streckenprojektion) – sonst könnte eine Position weit neben der Route fälschlich als "angekommen" gelten, weil die Projektion aufs Streckenende einrastet (das ist als Regressionstest in `nav-math.test.js` festgehalten).
-- Turn-by-Turn-Anweisungen (`routing.js`, `maneuvers`) entstehen aus Straßennamen-Wechseln entlang der Route plus der berechneten Abbiege-Peilung (leicht/normal/scharf links bzw. rechts) – wie bei den meisten einfachen Routenplanern, keine spurgenaue Führung.
+- A single persistent `navigator.geolocation.watchPosition()` call (started once when the app loads, browser permission required; works on `localhost` even without HTTPS, otherwise HTTPS is required) powers both the always-visible "you are here" dot and, once active, turn-by-turn navigation.
+- Before any route exists, the first GPS fix centers the map on you once (afterwards the view is left alone so it doesn't fight you panning around); starting navigation zooms the map in close and keeps following your position at that zoom level.
+- The current position is projected onto the route (`public/nav-math.js`), which derives: the currently relevant instruction, distance to the next turn, distance/time remaining.
+- If the position drifts more than 40 m from the route, a new route from the current position to the original destination is calculated automatically (with a 12 s cooldown so it doesn't recalculate on every bit of GPS noise).
+- Arrival detection checks the direct distance to the destination point (not the route projection) - otherwise a position far off the route could falsely register as "arrived" because the projection snaps to the end of the route (this is captured as a regression test in `nav-math.test.js`).
+- Turn-by-turn instructions (`routing.js`, `maneuvers`) are derived from street-name changes along the route plus the computed turn bearing (slight/normal/sharp left or right) - like most simple route planners, not lane-level guidance.
 
-## Starten
+## Running it
 
-Kein `npm install` erforderlich (keine externen Abhängigkeiten):
+No `npm install` required (no external dependencies):
 
 ```bash
 cd server
 node src/index.js
 ```
 
-Dann im Browser öffnen: <http://localhost:3001>
+Then open in a browser: <http://localhost:3001>
 
-Für automatischen Neustart bei Änderungen:
+For automatic restarts on changes:
 
 ```bash
-npm run dev -w server   # oder: node --watch server/src/index.js
+npm run dev -w server   # or: node --watch server/src/index.js
 ```
 
 ## Deployment (Netlify)
 
-Die App ist zusätzlich für Netlify vorbereitet:
+The app is also set up for Netlify:
 
-- `public/` wird als statische Website ausgeliefert (`netlify.toml` → `publish = "public"`).
-- Die API-Routen laufen dort als **Netlify Functions** (`netlify/functions/*.mts`) statt als Dauer-Prozess – jede Function importiert dieselbe Logik aus `server/src/api.js`, die auch der lokale Node-Server nutzt (`getGeocodeResults`, `getLiveRoute`). Dadurch verhalten sich lokaler Server und Netlify-Deployment identisch, ohne Code doppelt zu pflegen.
-- Die Functions sind über `config.path` exakt auf dieselben Pfade gemappt, die das Frontend ohnehin aufruft (`/api/geocode`, `/api/route`, `/api/health`) – am Frontend musste dafür nichts geändert werden.
-- `package.json` (Repo-Root) enthält `@netlify/functions` als Dev-Dependency für die TypeScript-Typen der Functions.
+- `public/` is served as a static site (`netlify.toml` → `publish = "public"`).
+- The API routes run there as **Netlify Functions** (`netlify/functions/*.mts`) instead of a long-running process - each function imports the same logic from `server/src/api.js` that the local Node server also uses (`getGeocodeResults`, `getLiveRoute`). That keeps the local server and the Netlify deployment behaving identically without maintaining the code twice.
+- The functions are mapped via `config.path` onto the exact same paths the frontend already calls (`/api/geocode`, `/api/route`, `/api/health`) - nothing had to change on the frontend for this.
+- The root `package.json` includes `@netlify/functions` as a dev dependency for the functions' TypeScript types.
 
-**Live-Route auf Netlify beachten**: Serverlose Functions haben ein Zeitlimit (üblicherweise 10 s). `netlify/functions/route.mts` bricht die Overpass-Abfrage deshalb nach 9 s sauber mit einer Fehlermeldung ab, statt dass die Plattform die Function hart killt. Für sehr große Bounding-Boxen (sehr lange Pendelstrecken) kann das knapp werden.
+**Note on live routing on Netlify**: serverless functions have a time limit (usually 10 s). `netlify/functions/route.mts` therefore aborts the Overpass query after 9 s with a clean error instead of letting the platform hard-kill the function. For very long commutes (large bounding boxes), this could get tight.
 
-### Ein Projekt wurde bereits angelegt
+### A project has already been created
 
-Über die Netlify-Tools wurde das Projekt **`trafilights`** erstellt (<https://app.netlify.com/projects/trafilights>, spätere URL: `https://trafilights.netlify.app`). Der eigentliche Deploy (Hochladen + Build) ließ sich aus dieser Entwicklungs-Sandbox heraus **nicht** auslösen, da dafür sowohl `npx` (npm-Registry) als auch ein Netlify-Proxy-Endpunkt erreichbar sein müssten – beides ist hier per Netzwerk-Policy blockiert (siehe oben).
+Via the Netlify tools, the project **`smoothride-scooter`** was created (<https://app.netlify.com/projects/smoothride-scooter>, live URL: `https://smoothride-scooter.netlify.app`) and is linked to this GitHub repository's `claude/sharp-mayer-13byde` branch, so it deploys automatically on every push. (The names `smoothride` and `smoothride-app` were already taken on Netlify.)
 
-**So schließt du den Deploy ab (einmalig, 2 Minuten):**
-
-1. Im Netlify-Dashboard das Projekt `trafilights` öffnen → **Site configuration → Build & deploy → Continuous deployment** → **Link repository**.
-2. `lukasstodtko-netizen/traficlights` auswählen, Branch `claude/sharp-mayer-13byde` (oder den aktuell gewünschten Hauptbranch).
-3. Build-Einstellungen sind bereits über `netlify.toml` festgelegt (kein Build-Befehl nötig, nur „Publish“). Deploy auslösen.
-
-Ab dann deployt Netlify automatisch bei jedem Push. Alternativ, falls du lieber per CLI deployst (von einem Rechner mit Internetzugang, nicht aus dieser Sandbox):
+Alternative, if you'd rather deploy via the CLI (from a machine with internet access):
 
 ```bash
 npx -y netlify-cli deploy --prod --site df9ff3a5-eeb4-4a12-b797-570836b0b46e
@@ -108,17 +104,17 @@ npx -y netlify-cli deploy --prod --site df9ff3a5-eeb4-4a12-b797-570836b0b46e
 
 ## Tests
 
-Reine Node-Core-Tests (keine Abhängigkeiten nötig), prüfen Graphaufbau, Einbahnstraßen-Logik, Ampel-Minimierung, Abbiegeverbote/-gebote, Turn-by-Turn-Anweisungen und die Navigations-Fortschrittsberechnung:
+Plain Node core tests (no dependencies needed) cover graph construction, one-way street logic, light minimization, turn restrictions, turn-by-turn instructions, and the navigation progress calculation:
 
 ```bash
 cd server
 npm test
 ```
 
-## Bekannte Grenzen / mögliche nächste Schritte
+## Known limitations / possible next steps
 
-- **Ampel-Richtungslogik**: Wird über `traffic_signals:direction`/`direction` in OSM ausgewertet (siehe oben). Wo OSM keine Richtung hinterlegt hat (der Normalfall bei einfachen Kreuzungen), zählt die Ampel weiterhin für jede Fahrtrichtung – das ist in aller Regel korrekt, könnte aber in seltenen, nicht getaggten Sonderfällen (z. B. eine Ampel, die nur eine einzelne Abbiegespur regelt) zu viel zählen.
-- **Kartendarstellung**: Der echte Karten-Renderer (MapLibre + OSM-Kacheln) wurde in dieser Sandbox nur über eine Mock-Bibliothek getestet, nicht mit echten Kartenkacheln (siehe oben) – bitte auf deinem eigenen Rechner einmal gegenprüfen.
-- **Abbiegeverbote**: Nur `via`-Knoten-Restriktionen werden ausgewertet, keine `via`-Weg-Restriktionen oder fahrzeugspezifischen/bedingten Varianten (siehe oben).
-- **Echtzeit-Navigation**: Die komplette Navigations-UI (Live-Marker, Fortschritt, Neuberechnung bei Abweichung) wurde in dieser Sandbox nur mit gemockter Geolocation und gemockten API-Antworten per Playwright getestet, nicht mit echtem GPS/echten Overpass-Daten unterwegs – bitte auf deinem Rollerl/Motorrad einmal gegenprüfen, bevor du dich blind darauf verlässt. Keine spurgenaue Führung (siehe oben).
-- **Bounding-Box-Größe**: Für sehr lange Pendelstrecken (>~30 km) ist die Overpass-Abfrage ggf. groß/langsam; die Fläche ist aktuell gedeckelt.
+- **Light direction logic**: evaluated via OSM's `traffic_signals:direction`/`direction` (see above). Where OSM has no direction tagged (the normal case for simple intersections), the light still counts for every direction of travel - generally correct, but could over-count in rare, untagged edge cases (e.g. a light that only controls a single turn lane).
+- **Map rendering**: the real map renderer (MapLibre + OSM tiles) was only tested in this sandbox via a mock library, not with real map tiles (see above) - please double-check on your own machine.
+- **Turn restrictions**: only `via`-node restrictions are evaluated, not `via`-way restrictions or vehicle-specific/conditional variants (see above).
+- **Real-time navigation**: the whole navigation UI (live marker, progress, rerouting on drift, zoom-on-navigate) was only tested in this sandbox with mocked geolocation and mocked API responses via Playwright, not with real GPS/real Overpass data out on the road - please double-check on your scooter before relying on it blindly. No lane-level guidance (see above).
+- **Bounding box size**: for very long commutes (>~30 km), the Overpass query may get large/slow; the area is currently capped.
