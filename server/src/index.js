@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { getGeocodeResults, getLiveRoute, getDemoPlacesList, getDemoRoute } from "./api.js";
+import { getGeocodeResults, getLiveRoute } from "./api.js";
 import { serveStatic } from "./staticServer.js";
 
 const PORT = process.env.PORT || 3001;
@@ -41,19 +41,6 @@ async function handleRoute(query, res) {
   }
 }
 
-function handleDemoPlaces(res) {
-  sendJson(res, 200, { places: getDemoPlacesList() });
-}
-
-function handleDemoRoute(query, res) {
-  try {
-    const result = getDemoRoute(query.get("fromId"), query.get("toId"));
-    sendJson(res, 200, result);
-  } catch (err) {
-    sendApiError(res, err);
-  }
-}
-
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
@@ -62,8 +49,6 @@ const server = createServer(async (req, res) => {
     if (pathname === "/api/health") return sendJson(res, 200, { ok: true });
     if (pathname === "/api/geocode") return await handleGeocode(searchParams, res);
     if (pathname === "/api/route") return await handleRoute(searchParams, res);
-    if (pathname === "/api/demo/places") return handleDemoPlaces(res);
-    if (pathname === "/api/demo/route") return handleDemoRoute(searchParams, res);
 
     if (pathname.startsWith("/api/")) {
       return sendJson(res, 404, { error: "Unbekannter Endpunkt" });

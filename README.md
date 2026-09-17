@@ -6,8 +6,7 @@ Routenplaner für Roller-/Motorradfahrer, der die Route mit den **wenigsten Ampe
 
 - Routenberechnung mit drei Varianten zum Vergleich: **wenigste Ampeln**, **schnellste Route**, **kürzeste Route** – jeweils mit Distanz, geschätzter Fahrzeit und Ampelanzahl.
 - Ampeln werden auf der Karte markiert.
-- **Demo-Modus**: eine kleine synthetische Beispielstadt, läuft komplett offline, kein Internetzugang nötig – ideal zum sofortigen Ausprobieren.
-- **Live-Modus**: echte Adresssuche (Nominatim) und echtes Straßennetz inkl. Ampeln (OpenStreetMap/Overpass API) – benötigt Internetzugang.
+- Echte Adresssuche (Nominatim) und echtes Straßennetz inkl. Ampeln (OpenStreetMap/Overpass API) – benötigt Internetzugang.
 - **Echte Kartenkacheln**: Wenn im Browser Internetzugang zu OpenStreetMap-Kartendiensten besteht, zeigt die App eine echte Karte (MapLibre GL JS + OSM-Kacheln) mit Zoom/Pan, farbigen Routenlinien und anklickbaren Ampel-/Start-/Zielmarkern. Ist das nicht der Fall, fällt sie automatisch auf eine schematische Canvas-Ansicht zurück (siehe unten).
 - Favoriten (z. B. die tägliche Strecke Zuhause ↔ Arbeit), gespeichert im Browser (localStorage).
 
@@ -18,9 +17,9 @@ Bewusst **ohne Build-Tools und ohne externe npm-Pakete** umgesetzt:
 - `server/` – Node.js-Backend, nur mit Node-Bordmitteln (`node:http`, `fetch`, …), kein `npm install` nötig.
   - `overpass.js` – lädt Straßen & Ampeln (`highway=traffic_signals`) aus OpenStreetMap via Overpass API.
   - `geocode.js` – Adresssuche via Nominatim.
-  - `graph.js` – baut aus den OSM-Daten einen gerichteten Graphen (berücksichtigt Einbahnstraßen).
+  - `graph.js` – baut aus den OSM-Daten einen gerichteten Graphen (berücksichtigt Einbahnstraßen) und entscheidet pro Kreuzung, ob eine Ampel für die jeweilige Fahrtrichtung überhaupt relevant ist (siehe unten).
   - `routing.js` – Dijkstra-Routing; die "wenigste Ampeln"-Variante gewichtet jeden Ampel-Knoten mit einer sehr hohen Zusatzkoste, sodass zuerst die Ampelanzahl und erst danach die Distanz minimiert wird (lexikografische Optimierung).
-  - `sampleData.js` / `demo.js` – die synthetische Demo-Stadt für den Offline-Modus.
+  - `sampleData.js` – synthetisches Straßennetz, ausschließlich als Fixture für die automatisierten Tests (`test/routing.test.js`) genutzt, nicht Teil der laufenden App.
   - `index.js` – HTTP-Server: API-Endpunkte + Ausliefern des Frontends.
 - `public/` – Frontend als reines HTML/CSS/JavaScript (keine Frameworks, kein Build-Schritt).
   - `app.js` enthält zwei Karten-Renderer: eine echte Karte via **MapLibre GL JS** (aus einem CDN geladen, OSM-Rasterkacheln als Kartenhintergrund) und eine Canvas-Ansicht als Fallback.
@@ -32,6 +31,16 @@ Bewusst **ohne Build-Tools und ohne externe npm-Pakete** umgesetzt:
 Diese Zwei-Wege-Lösung wurde nötig, weil die Entwicklungs-Sandbox, in der dieses Projekt gebaut wurde, jeglichen Zugriff auf npm-Registry, CDNs und Kartendienste (Overpass, Nominatim, Tile-Server) per Netzwerk-Policy blockiert – React/Vite/MapLibre ließen sich dort nicht installieren, und selbst ein per CDN eingebundenes MapLibre konnte dort keine echten Kacheln laden. Der MapLibre-Codepfad wurde stattdessen mit einer lokalen Mock-Implementierung von `maplibregl` verifiziert (Kartenerstellung, Routen-/Ampel-Layer, `fitBounds`-Verhalten) – **auf einem Rechner mit normalem Internetzugang solltest du die echte Kartenansicht trotzdem einmal selbst gegenprüfen**, bevor du dich darauf verlässt.
 
 Hinweis zu den Kartenkacheln: Es wird direkt `tile.openstreetmap.org` verwendet (keine Kosten, kein API-Key). Für mehr als sehr gelegentliche private Nutzung verlangt die [OSM-Tile-Nutzungsrichtlinie](https://operations.osmfoundation.org/policies/tiles/) einen eigenen Tile-Server oder einen unterstützten Anbieter (z. B. MapTiler, Stadia Maps) – für dieses Prototyp-/Pendel-Tool ist die direkte Nutzung in Ordnung.
+
+### Richtungsabhängige Ampelzählung
+
+Der ganze Sinn der App ist, nur die Ampeln zu zählen, die für die eigene Fahrtrichtung wirklich ausschlaggebend sind. `graph.js` prüft dafür pro Kreuzungsknoten:
+
+1. Trägt OpenStreetMap für den Knoten `traffic_signals:direction` (oder ersatzweise `direction`) mit dem Wert `forward`/`backward`, zählt die Ampel nur für die dazu passende Fahrtrichtung entlang des Straßenverlaufs (die jeweils andere Fahrtrichtung sieht diese Ampel gar nicht erst).
+2. Ist dort stattdessen eine Kompass-Gradzahl hinterlegt (z. B. `direction=70`), wird die tatsächliche Peilung der Anfahrt berechnet und nur gezählt, wenn sie grob (±90°) zur Ampel-Ausrichtung passt.
+3. Ist gar keine Richtung getaggt (der häufigste Fall – eine Kreuzung mit einem gemeinsamen Ampel-Knoten für alle Anfahrten), zählt die Ampel weiterhin für jede Fahrtrichtung, die durch diesen Knoten fährt – das ist für die meisten einfachen Kreuzungen korrekt, da dort ohnehin jede Anfahrt ihre eigene Rotphase hat.
+
+Das deckt die Fälle ab, in denen OSM tatsächlich Richtungsinformationen pflegt (z. B. getrennte Ampeln pro Fahrtrichtung auf einer Kreuzung, oder eine Ampel, die nur eine Abbiegespur betrifft); wo OSM keine Richtung hinterlegt hat, bleibt es bei der bisherigen, i. d. R. korrekten Annahme "ein Knoten = eine Ampel für alle Anfahrten".
 
 ## Starten
 
@@ -55,8 +64,8 @@ npm run dev -w server   # oder: node --watch server/src/index.js
 Die App ist zusätzlich für Netlify vorbereitet:
 
 - `public/` wird als statische Website ausgeliefert (`netlify.toml` → `publish = "public"`).
-- Die vier API-Routen laufen dort als **Netlify Functions** (`netlify/functions/*.mts`) statt als Dauer-Prozess – jede Function importiert dieselbe Logik aus `server/src/api.js`, die auch der lokale Node-Server nutzt (`getGeocodeResults`, `getLiveRoute`, `getDemoPlacesList`, `getDemoRoute`). Dadurch verhalten sich lokaler Server und Netlify-Deployment identisch, ohne Code doppelt zu pflegen.
-- Die Functions sind über `config.path` exakt auf dieselben Pfade gemappt, die das Frontend ohnehin aufruft (`/api/geocode`, `/api/route`, `/api/demo/places`, `/api/demo/route`, `/api/health`) – am Frontend musste dafür nichts geändert werden.
+- Die API-Routen laufen dort als **Netlify Functions** (`netlify/functions/*.mts`) statt als Dauer-Prozess – jede Function importiert dieselbe Logik aus `server/src/api.js`, die auch der lokale Node-Server nutzt (`getGeocodeResults`, `getLiveRoute`). Dadurch verhalten sich lokaler Server und Netlify-Deployment identisch, ohne Code doppelt zu pflegen.
+- Die Functions sind über `config.path` exakt auf dieselben Pfade gemappt, die das Frontend ohnehin aufruft (`/api/geocode`, `/api/route`, `/api/health`) – am Frontend musste dafür nichts geändert werden.
 - `package.json` (Repo-Root) enthält `@netlify/functions` als Dev-Dependency für die TypeScript-Typen der Functions.
 
 **Live-Route auf Netlify beachten**: Serverlose Functions haben ein Zeitlimit (üblicherweise 10 s). `netlify/functions/route.mts` bricht die Overpass-Abfrage deshalb nach 9 s sauber mit einer Fehlermeldung ab, statt dass die Plattform die Function hart killt. Für sehr große Bounding-Boxen (sehr lange Pendelstrecken) kann das knapp werden.
@@ -88,7 +97,7 @@ npm test
 
 ## Bekannte Grenzen / mögliche nächste Schritte
 
-- **Ampel-Richtungslogik**: OpenStreetMap taggt Ampeln i. d. R. als einzelnen Knoten pro Kreuzung, nicht separat pro Fahrtrichtung. Diese App zählt eine Ampel, sobald die berechnete Route über diesen Knoten fährt – das ist für die allermeisten Kreuzungen korrekt, bildet aber keine Fälle ab, in denen OSM tatsächlich getrennte Signal-Knoten pro Richtung/Spur enthält.
+- **Ampel-Richtungslogik**: Wird über `traffic_signals:direction`/`direction` in OSM ausgewertet (siehe oben). Wo OSM keine Richtung hinterlegt hat (der Normalfall bei einfachen Kreuzungen), zählt die Ampel weiterhin für jede Fahrtrichtung – das ist in aller Regel korrekt, könnte aber in seltenen, nicht getaggten Sonderfällen (z. B. eine Ampel, die nur eine einzelne Abbiegespur regelt) zu viel zählen.
 - **Kartendarstellung**: Der echte Karten-Renderer (MapLibre + OSM-Kacheln) wurde in dieser Sandbox nur über eine Mock-Bibliothek getestet, nicht mit echten Kartenkacheln (siehe oben) – bitte auf deinem eigenen Rechner einmal gegenprüfen.
 - **Turn-by-Turn-Navigation** ist nicht implementiert; die berechnete Route lässt sich aber leicht an eine bestehende Navi-App übergeben (Start-/Zielkoordinaten liegen vor).
 - **Bounding-Box-Größe**: Für sehr lange Pendelstrecken (>~30 km) ist die Overpass-Abfrage ggf. groß/langsam; die Fläche ist aktuell gedeckelt.

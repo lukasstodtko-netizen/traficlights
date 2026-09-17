@@ -9,9 +9,7 @@
   const ROUTE_ORDER = ["fewestLights", "fastest", "shortest"];
 
   const state = {
-    mode: "demo",
-    demoPlaces: [],
-    fromPlace: null, // { lat, lon, label } for live mode
+    fromPlace: null, // { lat, lon, label }
     toPlace: null,
     lastResult: null, // { start, end, routes }
     selectedRouteKey: "fewestLights",
@@ -19,12 +17,6 @@
   };
 
   const el = {
-    modeBtns: document.querySelectorAll(".mode-btn"),
-    modeHint: document.getElementById("mode-hint"),
-    demoFields: document.getElementById("demo-fields"),
-    liveFields: document.getElementById("live-fields"),
-    demoFrom: document.getElementById("demo-from"),
-    demoTo: document.getElementById("demo-to"),
     fromAddress: document.getElementById("from-address"),
     toAddress: document.getElementById("to-address"),
     fromSuggestions: document.getElementById("from-suggestions"),
@@ -48,54 +40,6 @@
   // If that CDN or the tile servers can't be reached, we fall back to the built-in Canvas
   // map further below so the app still works (e.g. offline, or behind a restrictive proxy).
   const USE_MAPLIBRE = typeof window.maplibregl !== "undefined" && !window.__maplibreLoadFailed;
-
-  // ---------- Mode switching ----------
-
-  el.modeBtns.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      el.modeBtns.forEach((b) => {
-        b.classList.toggle("active", b === btn);
-        b.setAttribute("aria-selected", b === btn ? "true" : "false");
-      });
-      state.mode = btn.dataset.mode;
-      const isDemo = state.mode === "demo";
-      el.demoFields.classList.toggle("hidden", !isDemo);
-      el.liveFields.classList.toggle("hidden", isDemo);
-      el.modeHint.textContent = isDemo
-        ? "Demo-Modus nutzt eine kleine Beispielstadt und funktioniert komplett offline – ideal zum Ausprobieren."
-        : "Live-Modus lädt echte Straßendaten von OpenStreetMap (Overpass) – dafür ist Internetzugang nötig.";
-      setStatus("");
-    });
-  });
-
-  // ---------- Demo places ----------
-
-  async function loadDemoPlaces() {
-    try {
-      const res = await fetch("/api/demo/places");
-      const data = await res.json();
-      state.demoPlaces = data.places || [];
-      el.demoFrom.innerHTML = "";
-      el.demoTo.innerHTML = "";
-      for (const place of state.demoPlaces) {
-        const opt1 = document.createElement("option");
-        opt1.value = place.id;
-        opt1.textContent = place.name;
-        el.demoFrom.appendChild(opt1);
-
-        const opt2 = document.createElement("option");
-        opt2.value = place.id;
-        opt2.textContent = place.name;
-        el.demoTo.appendChild(opt2);
-      }
-      if (state.demoPlaces.length > 1) {
-        el.demoFrom.value = state.demoPlaces[0].id;
-        el.demoTo.value = state.demoPlaces[1].id;
-      }
-    } catch (err) {
-      setStatus("Demo-Orte konnten nicht geladen werden.", "error");
-    }
-  }
 
   // ---------- Live address autocomplete ----------
 
@@ -154,28 +98,17 @@
     el.saveFavoriteBtn.disabled = true;
 
     try {
-      let result;
-      if (state.mode === "demo") {
-        const fromId = el.demoFrom.value;
-        const toId = el.demoTo.value;
-        if (fromId === toId) {
-          throw new Error("Start und Ziel dürfen nicht identisch sein.");
-        }
-        const res = await fetch(`/api/demo/route?fromId=${fromId}&toId=${toId}`);
-        result = await parseResponse(res);
-      } else {
-        if (!state.fromPlace || !state.toPlace) {
-          throw new Error("Bitte Start und Ziel jeweils aus den Vorschlägen auswählen.");
-        }
-        const params = new URLSearchParams({
-          fromLat: state.fromPlace.lat,
-          fromLon: state.fromPlace.lon,
-          toLat: state.toPlace.lat,
-          toLon: state.toPlace.lon,
-        });
-        const res = await fetch(`/api/route?${params}`);
-        result = await parseResponse(res);
+      if (!state.fromPlace || !state.toPlace) {
+        throw new Error("Bitte Start und Ziel jeweils aus den Vorschlägen auswählen.");
       }
+      const params = new URLSearchParams({
+        fromLat: state.fromPlace.lat,
+        fromLon: state.fromPlace.lon,
+        toLat: state.toPlace.lat,
+        toLon: state.toPlace.lon,
+      });
+      const res = await fetch(`/api/route?${params}`);
+      const result = await parseResponse(res);
 
       state.lastResult = result;
       state.selectedRouteKey = pickDefaultRoute(result.routes);
@@ -569,46 +502,21 @@
   }
 
   function applyFavorite(fav) {
-    const modeBtn = [...el.modeBtns].find((b) => b.dataset.mode === fav.mode);
-    if (modeBtn) modeBtn.click();
-
-    if (fav.mode === "demo") {
-      el.demoFrom.value = fav.fromId;
-      el.demoTo.value = fav.toId;
-    } else {
-      el.fromAddress.value = fav.from.label;
-      el.toAddress.value = fav.to.label;
-      state.fromPlace = fav.from;
-      state.toPlace = fav.to;
-    }
+    el.fromAddress.value = fav.from.label;
+    el.toAddress.value = fav.to.label;
+    state.fromPlace = fav.from;
+    state.toPlace = fav.to;
     el.form.requestSubmit();
   }
 
   el.saveFavoriteBtn.addEventListener("click", () => {
-    let entry;
-    if (state.mode === "demo") {
-      const fromId = el.demoFrom.value;
-      const toId = el.demoTo.value;
-      const fromName = el.demoFrom.selectedOptions[0]?.textContent || fromId;
-      const toName = el.demoTo.selectedOptions[0]?.textContent || toId;
-      entry = {
-        id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
-        mode: "demo",
-        fromId,
-        toId,
-        label: `${fromName} → ${toName}`,
-      };
-    } else {
-      if (!state.fromPlace || !state.toPlace) return;
-      entry = {
-        id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
-        mode: "live",
-        from: state.fromPlace,
-        to: state.toPlace,
-        label: `${shortLabel(state.fromPlace.label)} → ${shortLabel(state.toPlace.label)}`,
-      };
-    }
-    state.favorites.push(entry);
+    if (!state.fromPlace || !state.toPlace) return;
+    state.favorites.push({
+      id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
+      from: state.fromPlace,
+      to: state.toPlace,
+      label: `${shortLabel(state.fromPlace.label)} → ${shortLabel(state.toPlace.label)}`,
+    });
     persistFavorites();
     renderFavorites();
   });
@@ -620,6 +528,5 @@
   // ---------- Init ----------
 
   initMapLibre();
-  loadDemoPlaces();
   renderFavorites();
 })();

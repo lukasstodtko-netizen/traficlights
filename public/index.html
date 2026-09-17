@@ -23,32 +23,8 @@
 
   <main class="layout">
     <section class="panel">
-      <div class="mode-switch" role="tablist" aria-label="Datenquelle">
-        <button type="button" class="mode-btn active" data-mode="demo" role="tab" aria-selected="true">
-          Demo-Modus
-        </button>
-        <button type="button" class="mode-btn" data-mode="live" role="tab" aria-selected="false">
-          Live (OpenStreetMap)
-        </button>
-      </div>
-
-      <p class="mode-hint" id="mode-hint">
-        Demo-Modus nutzt eine kleine Beispielstadt und funktioniert komplett offline – ideal zum Ausprobieren.
-      </p>
-
       <form id="route-form">
-        <div id="demo-fields" class="field-group">
-          <label>
-            Start
-            <select id="demo-from"></select>
-          </label>
-          <label>
-            Ziel
-            <select id="demo-to"></select>
-          </label>
-        </div>
-
-        <div id="live-fields" class="field-group hidden">
+        <div class="field-group">
           <label class="autocomplete">
             Start-Adresse
             <input type="text" id="from-address" autocomplete="off" placeholder="z. B. Musterstraße 1, Musterstadt" />

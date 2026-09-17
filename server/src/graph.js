@@ -1,4 +1,4 @@
-import { haversineMeters } from "./geo.js";
+import { haversineMeters, bearingDegrees, angleDiffDegrees } from "./geo.js";
 
 // Rough free-flow speeds (km/h) used only to estimate travel time,
 // not for the light-minimization objective itself.
@@ -31,6 +31,32 @@ function isOneway(tags) {
   return null;
 }
 
+// OSM sometimes marks which approach a traffic signal actually controls, via
+// traffic_signals:direction (falls back to the generic direction tag): "forward"/
+// "backward" relative to the way's node order, "both", or a compass bearing in
+// degrees. Without such a tag, the signal is assumed to face every approach - the
+// normal case for a simple junction with one signal head per direction that OSM
+// only mapped as a single node.
+function signalAppliesToDirection(nodeTags, travelDirection, approachBearing) {
+  const raw = nodeTags["traffic_signals:direction"] ?? nodeTags.direction;
+  if (raw === undefined) return true;
+
+  if (raw === "both") return true;
+  if (raw === "forward") return travelDirection === "forward";
+  if (raw === "backward") return travelDirection === "backward";
+
+  const bearing = Number(raw);
+  if (Number.isFinite(bearing)) {
+    // A signal facing a given compass bearing is seen by traffic travelling
+    // roughly the same way; allow a generous +/-90 deg tolerance since exact
+    // mapping precision varies.
+    return angleDiffDegrees(approachBearing, bearing) <= 90;
+  }
+
+  // Unrecognized value - don't silently drop a real light, just count it.
+  return true;
+}
+
 /**
  * Builds a directed graph from raw OSM nodes/ways.
  * Returns { adjacency: Map<nodeId, Edge[]>, nodes: Map<nodeId, NodeInfo> }
@@ -39,7 +65,7 @@ function isOneway(tags) {
 export function buildGraph({ nodes, ways }) {
   const adjacency = new Map();
 
-  const addEdge = (fromId, toId, tags) => {
+  const addEdge = (fromId, toId, tags, travelDirection) => {
     const from = nodes.get(fromId);
     const to = nodes.get(toId);
     if (!from || !to) return;
@@ -50,12 +76,18 @@ export function buildGraph({ nodes, ways }) {
     const speedKmh = speedForHighway(tags.highway);
     const timeSec = (distance / 1000 / speedKmh) * 3600;
 
+    let isSignalEntry = false;
+    if (to.isTrafficSignal) {
+      const approachBearing = bearingDegrees(from.lat, from.lon, to.lat, to.lon);
+      isSignalEntry = signalAppliesToDirection(to.tags, travelDirection, approachBearing);
+    }
+
     if (!adjacency.has(fromId)) adjacency.set(fromId, []);
     adjacency.get(fromId).push({
       to: toId,
       distance,
       timeSec,
-      isSignalEntry: Boolean(to.isTrafficSignal),
+      isSignalEntry,
     });
   };
 
@@ -67,8 +99,8 @@ export function buildGraph({ nodes, ways }) {
       const a = nodeIds[i];
       const b = nodeIds[i + 1];
 
-      if (direction !== "backward") addEdge(a, b, way.tags);
-      if (direction !== "forward") addEdge(b, a, way.tags);
+      if (direction !== "backward") addEdge(a, b, way.tags, "forward");
+      if (direction !== "forward") addEdge(b, a, way.tags, "backward");
     }
   }
 

@@ -8,7 +8,6 @@ import { buildGraph, findNearestNode } from "./graph.js";
 import { computeRoutes } from "./routing.js";
 import { geocode } from "./geocode.js";
 import { boundingBox } from "./geo.js";
-import { getDemoPlaces, computeDemoRoute } from "./demo.js";
 
 function apiError(statusCode, message) {
   return Object.assign(new Error(message), { statusCode });
@@ -83,15 +82,4 @@ export async function getLiveRoute({ fromLat, fromLon, toLat, toLon }) {
     end: { lat: endMatch.node.lat, lon: endMatch.node.lon },
     routes,
   };
-}
-
-export function getDemoPlacesList() {
-  return getDemoPlaces();
-}
-
-export function getDemoRoute(fromId, toId) {
-  if (!fromId || !toId) {
-    throw apiError(400, "fromId und toId sind erforderlich");
-  }
-  return computeDemoRoute(fromId, toId);
 }

@@ -1,8 +1,8 @@
-// Small synthetic "Musterstadt" street grid used as an offline demo dataset.
-// It has the same shape as data returned by overpass.js (nodes/ways with OSM-style
-// tags), so it flows through the exact same buildGraph()/computeRoutes() code as
-// real OpenStreetMap data. Useful for trying the app without network access, and
-// as a fixture for automated tests.
+// Small synthetic "Musterstadt" street grid used as a fixture for the automated
+// tests (test/routing.test.js). It has the same shape as data returned by
+// overpass.js (nodes/ways with OSM-style tags), so it flows through the exact
+// same buildGraph()/computeRoutes() code as real OpenStreetMap data - without
+// needing network access to verify routing/graph logic.
 //
 // Layout: 7x7 intersections (rows 0-6, columns 0-6). All intersections in the
 // interior (row 1-5 AND column 1-5) have traffic signals; the outer ring does not.

@@ -59,6 +59,47 @@ test("dijkstra respects oneway streets", () => {
   }
 });
 
+test("traffic_signals:direction only counts the light for the approach it actually controls", () => {
+  const nodes = new Map([
+    [1, { id: 1, lat: 52.5, lon: 13.4, isTrafficSignal: false, tags: {} }],
+    [
+      2,
+      {
+        id: 2,
+        lat: 52.5005,
+        lon: 13.4,
+        isTrafficSignal: true,
+        tags: { highway: "traffic_signals", "traffic_signals:direction": "forward" },
+      },
+    ],
+    [3, { id: 3, lat: 52.501, lon: 13.4, isTrafficSignal: false, tags: {} }],
+  ]);
+  // A single two-way residential way, node order 1 -> 2 -> 3 defines "forward".
+  const ways = [{ id: 100, nodeIds: [1, 2, 3], tags: { highway: "residential" } }];
+
+  const graph = buildGraph({ nodes, ways });
+
+  const forward = computeRoutes(graph, 1, 3);
+  assert.equal(forward.shortest.trafficLightCount, 1, "travelling the way's forward direction should hit the signal");
+
+  const backward = computeRoutes(graph, 3, 1);
+  assert.equal(backward.shortest.trafficLightCount, 0, "travelling backward should not count a forward-only signal");
+});
+
+test("a traffic signal with no direction tag counts for both approaches", () => {
+  const nodes = new Map([
+    [1, { id: 1, lat: 52.5, lon: 13.4, isTrafficSignal: false, tags: {} }],
+    [2, { id: 2, lat: 52.5005, lon: 13.4, isTrafficSignal: true, tags: { highway: "traffic_signals" } }],
+    [3, { id: 3, lat: 52.501, lon: 13.4, isTrafficSignal: false, tags: {} }],
+  ]);
+  const ways = [{ id: 100, nodeIds: [1, 2, 3], tags: { highway: "residential" } }];
+
+  const graph = buildGraph({ nodes, ways });
+
+  assert.equal(computeRoutes(graph, 1, 3).shortest.trafficLightCount, 1);
+  assert.equal(computeRoutes(graph, 3, 1).shortest.trafficLightCount, 1);
+});
+
 test("findNearestNode returns closest node and distance", () => {
   const graph = buildGraph(sampleGraphSource);
   const home = place("home");
