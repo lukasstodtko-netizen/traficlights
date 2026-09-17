@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TrafiLights – Ampel-optimierte Rollerroute</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>🛵 TrafiLights</h1>
+    <p class="tagline">Die Route mit den wenigsten Ampeln in Fahrtrichtung – für Roller &amp; Motorrad.</p>
+  </header>
+
+  <main class="layout">
+    <section class="panel">
+      <div class="mode-switch" role="tablist" aria-label="Datenquelle">
+        <button type="button" class="mode-btn active" data-mode="demo" role="tab" aria-selected="true">
+          Demo-Modus
+        </button>
+        <button type="button" class="mode-btn" data-mode="live" role="tab" aria-selected="false">
+          Live (OpenStreetMap)
+        </button>
+      </div>
+
+      <p class="mode-hint" id="mode-hint">
+        Demo-Modus nutzt eine kleine Beispielstadt und funktioniert komplett offline – ideal zum Ausprobieren.
+      </p>
+
+      <form id="route-form">
+        <div id="demo-fields" class="field-group">
+          <label>
+            Start
+            <select id="demo-from"></select>
+          </label>
+          <label>
+            Ziel
+            <select id="demo-to"></select>
+          </label>
+        </div>
+
+        <div id="live-fields" class="field-group hidden">
+          <label class="autocomplete">
+            Start-Adresse
+            <input type="text" id="from-address" autocomplete="off" placeholder="z. B. Musterstraße 1, Musterstadt" />
+            <ul class="suggestions" id="from-suggestions"></ul>
+          </label>
+          <label class="autocomplete">
+            Ziel-Adresse
+            <input type="text" id="to-address" autocomplete="off" placeholder="z. B. Arbeitsplatz, Musterstadt" />
+            <ul class="suggestions" id="to-suggestions"></ul>
+          </label>
+        </div>
+
+        <button type="submit" id="calc-btn">Route berechnen</button>
+      </form>
+
+      <p class="status" id="status" role="status"></p>
+
+      <div class="favorites">
+        <div class="favorites-header">
+          <h2>Favoriten</h2>
+          <button type="button" id="save-favorite-btn" disabled>+ Aktuelle Route speichern</button>
+        </div>
+        <ul id="favorites-list" class="favorites-list"></ul>
+      </div>
+
+      <div id="results" class="results hidden">
+        <h2>Routenoptionen</h2>
+        <div id="route-cards" class="route-cards"></div>
+      </div>
+    </section>
+
+    <section class="map-section">
+      <canvas id="map-canvas"></canvas>
+      <div class="legend" id="legend"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
