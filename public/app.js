@@ -1,6 +1,13 @@
 import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
 
 (() => {
+  // iOS Safari ignores `user-scalable=no` in the viewport meta tag for accessibility
+  // reasons and still lets the page itself be pinch-zoomed via its own "gesture" events.
+  // Block those specifically so the layout always stays edge-to-edge. This is unrelated
+  // to MapLibre's own touch handling for pinch-zooming the map, which is untouched.
+  document.addEventListener("gesturestart", (e) => e.preventDefault());
+  document.addEventListener("gesturechange", (e) => e.preventDefault());
+
   const ROUTE_META = {
     fewestLights: { label: "Fewest lights", color: "#ff5470" },
     fastest: { label: "Fastest route", color: "#2ec4b6" },
@@ -75,7 +82,16 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
           list.innerHTML = "";
           for (const r of currentResults) {
             const li = document.createElement("li");
-            li.textContent = r.displayName;
+            const primary = document.createElement("div");
+            primary.className = "suggestion-primary";
+            primary.textContent = r.primary || r.displayName;
+            li.appendChild(primary);
+            if (r.secondary) {
+              const secondary = document.createElement("div");
+              secondary.className = "suggestion-secondary";
+              secondary.textContent = r.secondary;
+              li.appendChild(secondary);
+            }
             li.addEventListener("click", () => {
               input.value = r.displayName;
               list.innerHTML = "";

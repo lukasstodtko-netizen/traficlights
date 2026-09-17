@@ -61,6 +61,10 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
+  /* App-like, edge-to-edge feel: no double-tap-to-zoom, no page pinch-zoom.
+     The map's own pinch-to-zoom (handled by MapLibre inside .map-section) is
+     unaffected - this only blocks zooming the page/viewport itself. */
+  touch-action: manipulation;
 }
 
 .hidden {
@@ -289,13 +293,21 @@ label {
 .suggestions li {
   padding: 9px 10px;
   border-radius: 8px;
-  font-size: 0.85rem;
-  color: var(--text);
   cursor: pointer;
 }
 .suggestions li:hover,
 .suggestions li.active {
   background: var(--input-bg);
+}
+.suggestion-primary {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.suggestion-secondary {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin-top: 1px;
 }
 
 button[type="submit"] {
