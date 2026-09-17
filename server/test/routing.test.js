@@ -100,6 +100,90 @@ test("a traffic signal with no direction tag counts for both approaches", () => 
   assert.equal(computeRoutes(graph, 3, 1).shortest.trafficLightCount, 1);
 });
 
+function crossJunctionFixture() {
+  const C = 1;
+  const N = 2;
+  const S = 3;
+  const E = 4;
+  const W = 5;
+  const nodes = new Map([
+    [C, { id: C, lat: 52.5, lon: 13.4, isTrafficSignal: false, tags: {} }],
+    [N, { id: N, lat: 52.501, lon: 13.4, isTrafficSignal: false, tags: {} }],
+    [S, { id: S, lat: 52.499, lon: 13.4, isTrafficSignal: false, tags: {} }],
+    [E, { id: E, lat: 52.5, lon: 13.401, isTrafficSignal: false, tags: {} }],
+    [W, { id: W, lat: 52.5, lon: 13.399, isTrafficSignal: false, tags: {} }],
+  ]);
+  const wayW = { id: 10, nodeIds: [W, C], tags: { highway: "residential", name: "Weststraße" } };
+  const wayN = { id: 11, nodeIds: [C, N], tags: { highway: "residential", name: "Nordstraße" } };
+  const wayS = { id: 12, nodeIds: [C, S], tags: { highway: "residential", name: "Südstraße" } };
+  const wayE = { id: 13, nodeIds: [C, E], tags: { highway: "residential", name: "Oststraße" } };
+  return { nodes, ways: [wayW, wayN, wayS, wayE], ids: { C, N, S, E, W }, wayIds: { wayW: 10, wayN: 11, wayS: 12, wayE: 13 } };
+}
+
+// Note: with 3+ arms at a junction there is almost always some roundabout way to
+// reach a "forbidden" continuation (e.g. bounce off a different arm and come back
+// having "arrived" on an unrestricted way) - that mirrors reality, where turn
+// restrictions cause detours rather than true unreachability. So these tests
+// check for a forced, measurably longer detour rather than asserting no path exists.
+test("no_left_turn forces a detour instead of the direct forbidden maneuver", () => {
+  const { nodes, ways, ids, wayIds } = crossJunctionFixture();
+
+  const baseline = buildGraph({ nodes, ways, restrictions: [] });
+  const direct = computeRoutes(baseline, ids.W, ids.N).shortest;
+  assert.ok(direct, "unrestricted baseline route must exist");
+
+  const restrictions = [{ restrictionType: "no_left_turn", fromWayId: wayIds.wayW, viaNodeId: ids.C, toWayId: wayIds.wayN }];
+  const restrictedGraph = buildGraph({ nodes, ways, restrictions });
+  const detour = computeRoutes(restrictedGraph, ids.W, ids.N).shortest;
+
+  assert.ok(detour, "a detour route must still exist");
+  assert.ok(detour.distanceMeters > direct.distanceMeters, "restricted route must be longer than the direct left turn");
+
+  const directLeftTurn = detour.maneuvers.some(
+    (m, i) => i > 0 && detour.maneuvers[i - 1].streetName === "Weststraße" && m.streetName === "Nordstraße"
+  );
+  assert.ok(!directLeftTurn, "must not go directly from Weststraße onto Nordstraße");
+
+  // Turning right from the same approach is a different (unrestricted) maneuver
+  // and must remain exactly as short as without the restriction.
+  const rightBaseline = computeRoutes(baseline, ids.W, ids.S).shortest;
+  const rightRestricted = computeRoutes(restrictedGraph, ids.W, ids.S).shortest;
+  assert.equal(rightRestricted.distanceMeters, rightBaseline.distanceMeters, "unrelated turns must be unaffected");
+});
+
+test("only_straight_on forces a detour for every turn but leaves the mandated direction untouched", () => {
+  const { nodes, ways, ids, wayIds } = crossJunctionFixture();
+
+  const baseline = buildGraph({ nodes, ways, restrictions: [] });
+  const restrictions = [{ restrictionType: "only_straight_on", fromWayId: wayIds.wayW, viaNodeId: ids.C, toWayId: wayIds.wayE }];
+  const restrictedGraph = buildGraph({ nodes, ways, restrictions });
+
+  const straightBaseline = computeRoutes(baseline, ids.W, ids.E).shortest;
+  const straightRestricted = computeRoutes(restrictedGraph, ids.W, ids.E).shortest;
+  assert.equal(straightRestricted.distanceMeters, straightBaseline.distanceMeters, "the mandated straight-on must be untouched");
+
+  const leftBaseline = computeRoutes(baseline, ids.W, ids.N).shortest;
+  const leftRestricted = computeRoutes(restrictedGraph, ids.W, ids.N).shortest;
+  assert.ok(leftRestricted.distanceMeters > leftBaseline.distanceMeters, "turning left must now require a detour");
+});
+
+test("maneuvers include depart/arrive plus turn instructions with street names", () => {
+  const graph = buildGraph(sampleGraphSource);
+  const home = place("home");
+  const office = place("office");
+  const start = findNearestNode(graph.nodes, home.lat, home.lon);
+  const end = findNearestNode(graph.nodes, office.lat, office.lon);
+
+  const route = computeRoutes(graph, start.node.id, end.node.id).fewestLights;
+  assert.ok(route.maneuvers.length >= 3, "expected depart, at least one turn, and arrive");
+  assert.equal(route.maneuvers[0].type, "depart");
+  assert.equal(route.maneuvers.at(-1).type, "arrive");
+  for (const m of route.maneuvers) {
+    assert.ok(typeof m.instruction === "string" && m.instruction.length > 0);
+    assert.equal(m.coordinate.length, 2);
+  }
+});
+
 test("findNearestNode returns closest node and distance", () => {
   const graph = buildGraph(sampleGraphSource);
   const home = place("home");

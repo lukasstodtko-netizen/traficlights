@@ -1,3 +1,5 @@
+import { bearingDegrees } from "./geo.js";
+
 // Large enough to dominate any realistic in-city distance/time difference,
 // so minimizing (distance + LIGHT_PENALTY * lights) effectively minimizes
 // lights first, and only uses distance as a tiebreaker among equal-light routes.
@@ -42,52 +44,166 @@ class MinHeap {
   }
 }
 
+// A turn restriction only applies to a specific (via node, the way you arrived on)
+// pair, and either forbids one specific continuation ("no_...") or mandates one
+// ("only_..." - every other continuation is then forbidden). The very first move
+// of a route has no "arrived on" way yet, so nothing can restrict it.
+function isTurnForbidden(restrictions, viaNodeId, arrivingWayId, nextWayId) {
+  if (arrivingWayId == null) return false;
+  const rule = restrictions.get(`${viaNodeId}|${arrivingWayId}`);
+  if (!rule) return false;
+  if (rule.type === "no") return rule.toWayId === nextWayId;
+  return rule.toWayId !== nextWayId;
+}
+
 /**
- * Generic Dijkstra over the adjacency graph.
- * costFn(edge) -> number, must be >= 0.
+ * Dijkstra over the adjacency graph, with state = (node, way arrived on) rather
+ * than just node, so that turn restrictions (which depend on where you came from)
+ * can be enforced. costFn(edge) -> number, must be >= 0.
  * Returns { path: nodeId[], edgesUsed: Edge[] } or null if unreachable.
  */
-function dijkstra(adjacency, startId, endId, costFn) {
-  const dist = new Map([[startId, 0]]);
+function dijkstra(adjacency, restrictions, startId, endId, costFn) {
+  const startKey = `${startId}|start`;
+  const dist = new Map([[startKey, 0]]);
   const prev = new Map();
   const visited = new Set();
   const heap = new MinHeap();
-  heap.push({ id: startId, priority: 0 });
+  heap.push({ key: startKey, nodeId: startId, wayId: null, priority: 0 });
+
+  let endState = null;
 
   while (heap.size > 0) {
-    const { id: u, priority: d } = heap.pop();
-    if (visited.has(u)) continue;
-    visited.add(u);
-    if (u === endId) break;
+    const cur = heap.pop();
+    if (visited.has(cur.key)) continue;
+    visited.add(cur.key);
+    if (cur.nodeId === endId) {
+      endState = cur;
+      break;
+    }
 
-    const edges = adjacency.get(u);
+    const edges = adjacency.get(cur.nodeId);
     if (!edges) continue;
 
     for (const edge of edges) {
-      if (visited.has(edge.to)) continue;
-      const newDist = d + costFn(edge);
-      if (newDist < (dist.get(edge.to) ?? Infinity)) {
-        dist.set(edge.to, newDist);
-        prev.set(edge.to, { from: u, edge });
-        heap.push({ id: edge.to, priority: newDist });
+      if (isTurnForbidden(restrictions, cur.nodeId, cur.wayId, edge.wayId)) continue;
+
+      const nextKey = `${edge.to}|${edge.wayId}`;
+      if (visited.has(nextKey)) continue;
+
+      const newDist = cur.priority + costFn(edge);
+      if (newDist < (dist.get(nextKey) ?? Infinity)) {
+        dist.set(nextKey, newDist);
+        prev.set(nextKey, { fromKey: cur.key, fromNodeId: cur.nodeId, edge });
+        heap.push({ key: nextKey, nodeId: edge.to, wayId: edge.wayId, priority: newDist });
       }
     }
   }
 
-  if (!dist.has(endId)) return null;
+  if (!endState) return null;
 
   const path = [endId];
   const edgesUsed = [];
-  let cur = endId;
-  while (cur !== startId) {
-    const step = prev.get(cur);
+  let curKey = endState.key;
+  while (curKey !== startKey) {
+    const step = prev.get(curKey);
     if (!step) return null;
     edgesUsed.unshift(step.edge);
-    path.unshift(step.from);
-    cur = step.from;
+    path.unshift(step.fromNodeId);
+    curKey = step.fromKey;
   }
 
   return { path, edgesUsed };
+}
+
+// Maneuvers are derived from OSM street-name changes along the route, which is
+// the same simplification most hobby routers use - it doesn't capture every lane
+// change, but it matches every point where a driver actually has to decide
+// something ("this street ends, which way now").
+const TURN_LABELS = {
+  straight: "Weiter geradeaus",
+  "slight-left": "Leicht links halten",
+  "slight-right": "Leicht rechts halten",
+  left: "Links abbiegen",
+  right: "Rechts abbiegen",
+  "sharp-left": "Scharf links abbiegen",
+  "sharp-right": "Scharf rechts abbiegen",
+};
+
+function classifyTurn(bearingBefore, bearingAfter) {
+  const diff = ((bearingAfter - bearingBefore + 540) % 360) - 180; // -180..180, + = right, - = left
+  const abs = Math.abs(diff);
+  if (abs < 20) return "straight";
+  if (abs < 45) return diff > 0 ? "slight-right" : "slight-left";
+  if (abs < 150) return diff > 0 ? "right" : "left";
+  return diff > 0 ? "sharp-right" : "sharp-left";
+}
+
+function maneuverInstruction(turn, streetName) {
+  const label = TURN_LABELS[turn] || "Weiter";
+  return streetName ? `${label} auf ${streetName}` : label;
+}
+
+function groupIntoSegments(edgesUsed) {
+  const segments = [];
+  for (let i = 0; i < edgesUsed.length; i++) {
+    const edge = edgesUsed[i];
+    const last = segments[segments.length - 1];
+    if (last && last.streetName === edge.streetName) {
+      last.endEdgeIdx = i;
+      last.distance += edge.distance;
+    } else {
+      segments.push({ streetName: edge.streetName, startEdgeIdx: i, endEdgeIdx: i, distance: edge.distance });
+    }
+  }
+  return segments;
+}
+
+function buildManeuvers(path, edgesUsed, nodes) {
+  if (edgesUsed.length === 0) return [];
+
+  const segments = groupIntoSegments(edgesUsed);
+  const bearingOfEdge = (idx) => {
+    const a = nodes.get(path[idx]);
+    const b = nodes.get(path[idx + 1]);
+    return bearingDegrees(a.lat, a.lon, b.lat, b.lon);
+  };
+
+  const maneuvers = [];
+  const firstNode = nodes.get(path[0]);
+  maneuvers.push({
+    type: "depart",
+    instruction: segments[0].streetName ? `Losfahren auf ${segments[0].streetName}` : "Losfahren",
+    streetName: segments[0].streetName,
+    coordinate: [firstNode.lon, firstNode.lat],
+    distanceMeters: Math.round(segments[0].distance),
+  });
+
+  for (let s = 1; s < segments.length; s++) {
+    const prevSeg = segments[s - 1];
+    const seg = segments[s];
+    const bearingBefore = bearingOfEdge(prevSeg.endEdgeIdx);
+    const bearingAfter = bearingOfEdge(seg.startEdgeIdx);
+    const turn = classifyTurn(bearingBefore, bearingAfter);
+    const node = nodes.get(path[seg.startEdgeIdx]);
+    maneuvers.push({
+      type: turn,
+      instruction: maneuverInstruction(turn, seg.streetName),
+      streetName: seg.streetName,
+      coordinate: [node.lon, node.lat],
+      distanceMeters: Math.round(seg.distance),
+    });
+  }
+
+  const lastNode = nodes.get(path[path.length - 1]);
+  maneuvers.push({
+    type: "arrive",
+    instruction: "Ziel erreicht",
+    streetName: null,
+    coordinate: [lastNode.lon, lastNode.lat],
+    distanceMeters: 0,
+  });
+
+  return maneuvers;
 }
 
 function summarize(result, nodes, extraSecondsPerLight) {
@@ -119,22 +235,25 @@ function summarize(result, nodes, extraSecondsPerLight) {
     estimatedTimeSec: Math.round(timeSec),
     trafficLightCount: trafficLights.length,
     trafficLights,
+    maneuvers: buildManeuvers(path, edgesUsed, nodes),
   };
 }
 
-export function computeRoutes({ adjacency, nodes }, startId, endId, options = {}) {
+export function computeRoutes({ adjacency, nodes, restrictions }, startId, endId, options = {}) {
   const extraSecondsPerLight = options.extraSecondsPerLight ?? 15;
+  const restrictionMap = restrictions ?? new Map();
 
   const fewestLights = dijkstra(
     adjacency,
+    restrictionMap,
     startId,
     endId,
     (edge) => edge.distance + (edge.isSignalEntry ? LIGHT_PENALTY_METERS : 0)
   );
 
-  const fastest = dijkstra(adjacency, startId, endId, (edge) => edge.timeSec);
+  const fastest = dijkstra(adjacency, restrictionMap, startId, endId, (edge) => edge.timeSec);
 
-  const shortest = dijkstra(adjacency, startId, endId, (edge) => edge.distance);
+  const shortest = dijkstra(adjacency, restrictionMap, startId, endId, (edge) => edge.distance);
 
   return {
     fewestLights: summarize(fewestLights, nodes, extraSecondsPerLight),

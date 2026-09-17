@@ -28,10 +28,13 @@ const DRIVABLE_HIGHWAYS = [
 export async function fetchRoadNetwork(bbox) {
   const highwayRegex = `^(${DRIVABLE_HIGHWAYS.join("|")})$`;
   const bboxStr = `${bbox.south},${bbox.west},${bbox.north},${bbox.east}`;
+  // Also fetch turn-restriction relations (no_left_turn, only_straight_on, ...) so
+  // the router doesn't suggest turns that are actually illegal.
   const query = `
     [out:json][timeout:30];
     (
       way["highway"~"${highwayRegex}"]["motor_vehicle"!="no"]["access"!="private"](${bboxStr});
+      relation["type"="restriction"](${bboxStr});
     );
     out body;
     >;
@@ -66,6 +69,7 @@ export async function fetchRoadNetwork(bbox) {
 
   const nodes = new Map();
   const ways = [];
+  const restrictions = [];
 
   for (const el of data.elements) {
     if (el.type === "node") {
@@ -82,8 +86,23 @@ export async function fetchRoadNetwork(bbox) {
         nodeIds: el.nodes,
         tags: el.tags || {},
       });
+    } else if (el.type === "relation" && el.tags?.type === "restriction") {
+      // Only the common "via a single node" shape is handled - a via *way*
+      // (used for a few complex multi-lane junctions) is rare and skipped.
+      const restrictionType = el.tags.restriction;
+      const fromWay = el.members?.find((m) => m.role === "from" && m.type === "way");
+      const viaNode = el.members?.find((m) => m.role === "via" && m.type === "node");
+      const toWay = el.members?.find((m) => m.role === "to" && m.type === "way");
+      if (restrictionType && fromWay && viaNode && toWay) {
+        restrictions.push({
+          restrictionType,
+          fromWayId: fromWay.ref,
+          viaNodeId: viaNode.ref,
+          toWayId: toWay.ref,
+        });
+      }
     }
   }
 
-  return { nodes, ways };
+  return { nodes, ways, restrictions };
 }

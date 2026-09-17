@@ -9,20 +9,23 @@ Routenplaner für Roller-/Motorradfahrer, der die Route mit den **wenigsten Ampe
 - Echte Adresssuche (Nominatim) und echtes Straßennetz inkl. Ampeln (OpenStreetMap/Overpass API) – benötigt Internetzugang.
 - **Echte Kartenkacheln**: Wenn im Browser Internetzugang zu OpenStreetMap-Kartendiensten besteht, zeigt die App eine echte Karte (MapLibre GL JS + OSM-Kacheln) mit Zoom/Pan, farbigen Routenlinien und anklickbaren Ampel-/Start-/Zielmarkern. Ist das nicht der Fall, fällt sie automatisch auf eine schematische Canvas-Ansicht zurück (siehe unten).
 - Favoriten (z. B. die tägliche Strecke Zuhause ↔ Arbeit), gespeichert im Browser (localStorage).
+- **Verkehrsregeln**: Abbiegeverbote/-gebote aus OpenStreetMap (`no_left_turn`, `only_straight_on`, …) werden respektiert – die Route schlägt keine Abbiegung vor, die dort verboten ist.
+- **Echtzeit-Navigation**: Turn-by-Turn-Anweisungen mit Live-Standort (GPS), automatischer Fortschrittsanzeige und automatischer Neuberechnung, wenn du von der Route abweichst.
 
 ## Architektur
 
 Bewusst **ohne Build-Tools und ohne externe npm-Pakete** umgesetzt:
 
 - `server/` – Node.js-Backend, nur mit Node-Bordmitteln (`node:http`, `fetch`, …), kein `npm install` nötig.
-  - `overpass.js` – lädt Straßen & Ampeln (`highway=traffic_signals`) aus OpenStreetMap via Overpass API.
+  - `overpass.js` – lädt Straßen, Ampeln (`highway=traffic_signals`) und Abbiegeverbote (`relation[type=restriction]`) aus OpenStreetMap via Overpass API.
   - `geocode.js` – Adresssuche via Nominatim.
-  - `graph.js` – baut aus den OSM-Daten einen gerichteten Graphen (berücksichtigt Einbahnstraßen) und entscheidet pro Kreuzung, ob eine Ampel für die jeweilige Fahrtrichtung überhaupt relevant ist (siehe unten).
-  - `routing.js` – Dijkstra-Routing; die "wenigste Ampeln"-Variante gewichtet jeden Ampel-Knoten mit einer sehr hohen Zusatzkoste, sodass zuerst die Ampelanzahl und erst danach die Distanz minimiert wird (lexikografische Optimierung).
+  - `graph.js` – baut aus den OSM-Daten einen gerichteten Graphen (berücksichtigt Einbahnstraßen), entscheidet pro Kreuzung, ob eine Ampel für die jeweilige Fahrtrichtung überhaupt relevant ist, und baut die Abbiegeverbote-Tabelle auf (siehe unten).
+  - `routing.js` – Dijkstra-Routing; die "wenigste Ampeln"-Variante gewichtet jeden Ampel-Knoten mit einer sehr hohen Zusatzkoste, sodass zuerst die Ampelanzahl und erst danach die Distanz minimiert wird (lexikografische Optimierung). Der Zustand pro Dijkstra-Schritt ist (Knoten, angekommen über welche Straße) statt nur (Knoten), damit Abbiegeverbote korrekt greifen können. Erzeugt außerdem Turn-by-Turn-Anweisungen (`maneuvers`) pro Route.
   - `sampleData.js` – synthetisches Straßennetz, ausschließlich als Fixture für die automatisierten Tests (`test/routing.test.js`) genutzt, nicht Teil der laufenden App.
   - `index.js` – HTTP-Server: API-Endpunkte + Ausliefern des Frontends.
-- `public/` – Frontend als reines HTML/CSS/JavaScript (keine Frameworks, kein Build-Schritt).
-  - `app.js` enthält zwei Karten-Renderer: eine echte Karte via **MapLibre GL JS** (aus einem CDN geladen, OSM-Rasterkacheln als Kartenhintergrund) und eine Canvas-Ansicht als Fallback.
+- `public/` – Frontend als reines HTML/CSS/JavaScript (keine Frameworks, kein Build-Schritt; `app.js` läuft als ES-Modul).
+  - `app.js` enthält zwei Karten-Renderer: eine echte Karte via **MapLibre GL JS** (aus einem CDN geladen, OSM-Rasterkacheln als Kartenhintergrund) und eine Canvas-Ansicht als Fallback. Außerdem die Echtzeit-Navigation (siehe unten).
+  - `nav-math.js` – reine, abhängigkeitsfreie Geometriefunktionen für die Navigation (Position auf Route projizieren, Fortschritt/Abweichung berechnen) – bewusst von der DOM-/Geolocation-Logik in `app.js` getrennt, damit sie sich mit Node testen lassen.
 
 ### Wieso zwei Karten-Renderer (MapLibre + Canvas-Fallback)?
 
@@ -41,6 +44,22 @@ Der ganze Sinn der App ist, nur die Ampeln zu zählen, die für die eigene Fahrt
 3. Ist gar keine Richtung getaggt (der häufigste Fall – eine Kreuzung mit einem gemeinsamen Ampel-Knoten für alle Anfahrten), zählt die Ampel weiterhin für jede Fahrtrichtung, die durch diesen Knoten fährt – das ist für die meisten einfachen Kreuzungen korrekt, da dort ohnehin jede Anfahrt ihre eigene Rotphase hat.
 
 Das deckt die Fälle ab, in denen OSM tatsächlich Richtungsinformationen pflegt (z. B. getrennte Ampeln pro Fahrtrichtung auf einer Kreuzung, oder eine Ampel, die nur eine Abbiegespur betrifft); wo OSM keine Richtung hinterlegt hat, bleibt es bei der bisherigen, i. d. R. korrekten Annahme "ein Knoten = eine Ampel für alle Anfahrten".
+
+### Verkehrsregeln: Abbiegeverbote/-gebote
+
+Die Route respektiert Abbiegeverbote und -gebote aus OpenStreetMap (`relation[type=restriction]`, z. B. `no_left_turn`, `no_u_turn`, `only_straight_on`). Technisch bedeutet das: Der Dijkstra-Zustand ist nicht nur "an welchem Knoten", sondern "an welchem Knoten, angekommen über welche Straße" – nur so lässt sich prüfen, ob die nächste Abbiegung von genau dieser Anfahrt aus verboten ist. Ohne diese Erweiterung könnte die App Routen vorschlagen, die zwar kürzer/ampelärmer wären, aber real verboten sind (und die man als Fahrer:in so gar nicht fahren dürfte).
+
+Einschränkungen: Ausgewertet wird die einfache, häufigste Form (`from`-Way → `via`-**Knoten** → `to`-Way). Restriktionen über einen `via`-**Weg** (seltene, komplexe Mehrspur-Kreuzungen) sowie fahrzeugspezifische/bedingte Varianten (`restriction:motorcycle`, `restriction:conditional`) werden nicht ausgewertet – hier gilt weiterhin die normale (unbeschränkte) Kantenlogik.
+
+### Echtzeit-Navigation
+
+Nach der Routenberechnung kann per **"▶ Navigation starten"** eine Turn-by-Turn-Führung gestartet werden:
+
+- Nutzt `navigator.geolocation.watchPosition()` für den Live-Standort (Browser-Berechtigung erforderlich; funktioniert auf `localhost` auch ohne HTTPS, sonst nur über HTTPS).
+- Die aktuelle Position wird auf die Route projiziert (`public/nav-math.js`), daraus werden abgeleitet: die aktuell relevante Anweisung, Distanz bis zur nächsten Abbiegung, Distanz/Zeit bis zum Ziel.
+- Weicht die Position mehr als 40 m von der Route ab, wird automatisch (mit 12 s Cooldown, um nicht bei jedem GPS-Wackler neu zu rechnen) eine neue Route von der aktuellen Position zum ursprünglichen Ziel berechnet.
+- Die Ankunftserkennung prüft die direkte Distanz zum Zielpunkt (nicht die Streckenprojektion) – sonst könnte eine Position weit neben der Route fälschlich als "angekommen" gelten, weil die Projektion aufs Streckenende einrastet (das ist als Regressionstest in `nav-math.test.js` festgehalten).
+- Turn-by-Turn-Anweisungen (`routing.js`, `maneuvers`) entstehen aus Straßennamen-Wechseln entlang der Route plus der berechneten Abbiege-Peilung (leicht/normal/scharf links bzw. rechts) – wie bei den meisten einfachen Routenplanern, keine spurgenaue Führung.
 
 ## Starten
 
@@ -88,7 +107,7 @@ npx -y netlify-cli deploy --prod --site df9ff3a5-eeb4-4a12-b797-570836b0b46e
 
 ## Tests
 
-Reine Node-Core-Tests (keine Abhängigkeiten nötig), prüfen Graphaufbau, Einbahnstraßen-Logik und dass die Ampel-Minimierung tatsächlich weniger Ampeln liefert:
+Reine Node-Core-Tests (keine Abhängigkeiten nötig), prüfen Graphaufbau, Einbahnstraßen-Logik, Ampel-Minimierung, Abbiegeverbote/-gebote, Turn-by-Turn-Anweisungen und die Navigations-Fortschrittsberechnung:
 
 ```bash
 cd server
@@ -99,5 +118,6 @@ npm test
 
 - **Ampel-Richtungslogik**: Wird über `traffic_signals:direction`/`direction` in OSM ausgewertet (siehe oben). Wo OSM keine Richtung hinterlegt hat (der Normalfall bei einfachen Kreuzungen), zählt die Ampel weiterhin für jede Fahrtrichtung – das ist in aller Regel korrekt, könnte aber in seltenen, nicht getaggten Sonderfällen (z. B. eine Ampel, die nur eine einzelne Abbiegespur regelt) zu viel zählen.
 - **Kartendarstellung**: Der echte Karten-Renderer (MapLibre + OSM-Kacheln) wurde in dieser Sandbox nur über eine Mock-Bibliothek getestet, nicht mit echten Kartenkacheln (siehe oben) – bitte auf deinem eigenen Rechner einmal gegenprüfen.
-- **Turn-by-Turn-Navigation** ist nicht implementiert; die berechnete Route lässt sich aber leicht an eine bestehende Navi-App übergeben (Start-/Zielkoordinaten liegen vor).
+- **Abbiegeverbote**: Nur `via`-Knoten-Restriktionen werden ausgewertet, keine `via`-Weg-Restriktionen oder fahrzeugspezifischen/bedingten Varianten (siehe oben).
+- **Echtzeit-Navigation**: Die komplette Navigations-UI (Live-Marker, Fortschritt, Neuberechnung bei Abweichung) wurde in dieser Sandbox nur mit gemockter Geolocation und gemockten API-Antworten per Playwright getestet, nicht mit echtem GPS/echten Overpass-Daten unterwegs – bitte auf deinem Rollerl/Motorrad einmal gegenprüfen, bevor du dich blind darauf verlässt. Keine spurgenaue Führung (siehe oben).
 - **Bounding-Box-Größe**: Für sehr lange Pendelstrecken (>~30 km) ist die Overpass-Abfrage ggf. groß/langsam; die Fläche ist aktuell gedeckelt.

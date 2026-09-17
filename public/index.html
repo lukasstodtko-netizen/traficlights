@@ -23,36 +23,50 @@
 
   <main class="layout">
     <section class="panel">
-      <form id="route-form">
-        <div class="field-group">
-          <label class="autocomplete">
-            Start-Adresse
-            <input type="text" id="from-address" autocomplete="off" placeholder="z. B. Musterstraße 1, Musterstadt" />
-            <ul class="suggestions" id="from-suggestions"></ul>
-          </label>
-          <label class="autocomplete">
-            Ziel-Adresse
-            <input type="text" id="to-address" autocomplete="off" placeholder="z. B. Arbeitsplatz, Musterstadt" />
-            <ul class="suggestions" id="to-suggestions"></ul>
-          </label>
+      <div id="planning-section">
+        <form id="route-form">
+          <div class="field-group">
+            <label class="autocomplete">
+              Start-Adresse
+              <input type="text" id="from-address" autocomplete="off" placeholder="z. B. Musterstraße 1, Musterstadt" />
+              <ul class="suggestions" id="from-suggestions"></ul>
+            </label>
+            <label class="autocomplete">
+              Ziel-Adresse
+              <input type="text" id="to-address" autocomplete="off" placeholder="z. B. Arbeitsplatz, Musterstadt" />
+              <ul class="suggestions" id="to-suggestions"></ul>
+            </label>
+          </div>
+
+          <button type="submit" id="calc-btn">Route berechnen</button>
+        </form>
+
+        <p class="status" id="status" role="status"></p>
+
+        <div class="favorites">
+          <div class="favorites-header">
+            <h2>Favoriten</h2>
+            <button type="button" id="save-favorite-btn" disabled>+ Aktuelle Route speichern</button>
+          </div>
+          <ul id="favorites-list" class="favorites-list"></ul>
         </div>
 
-        <button type="submit" id="calc-btn">Route berechnen</button>
-      </form>
-
-      <p class="status" id="status" role="status"></p>
-
-      <div class="favorites">
-        <div class="favorites-header">
-          <h2>Favoriten</h2>
-          <button type="button" id="save-favorite-btn" disabled>+ Aktuelle Route speichern</button>
+        <div id="results" class="results hidden">
+          <h2>Routenoptionen</h2>
+          <div id="route-cards" class="route-cards"></div>
+          <button type="button" id="start-nav-btn">▶ Navigation starten</button>
         </div>
-        <ul id="favorites-list" class="favorites-list"></ul>
       </div>
 
-      <div id="results" class="results hidden">
-        <h2>Routenoptionen</h2>
-        <div id="route-cards" class="route-cards"></div>
+      <div id="nav-panel" class="nav-panel hidden">
+        <div class="nav-instruction" id="nav-instruction">–</div>
+        <div class="nav-distance" id="nav-distance-to-maneuver"></div>
+        <div class="nav-substats">
+          <span id="nav-distance-remaining">–</span>
+          <span id="nav-time-remaining">–</span>
+        </div>
+        <p class="nav-status" id="nav-status" role="status"></p>
+        <button type="button" id="stop-nav-btn">Navigation beenden</button>
       </div>
     </section>
 
@@ -66,6 +80,6 @@
     </section>
   </main>
 
-  <script src="/app.js"></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>

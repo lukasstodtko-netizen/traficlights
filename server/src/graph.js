@@ -57,15 +57,34 @@ function signalAppliesToDirection(nodeTags, travelDirection, approachBearing) {
   return true;
 }
 
+// Builds a lookup for turn restrictions: `${viaNodeId}|${fromWayId}` -> which way
+// you're forced onto ("only_...") or forbidden from taking ("no_..."). Restrictions
+// with an unrecognized `restriction` value, or that reference a via *way* rather
+// than a via node (rare, complex multi-lane cases), are skipped rather than guessed.
+function buildRestrictionMap(rawRestrictions) {
+  const restrictions = new Map();
+  for (const r of rawRestrictions) {
+    const isOnly = r.restrictionType.startsWith("only_");
+    const isNo = r.restrictionType.startsWith("no_");
+    if (!isOnly && !isNo) continue;
+
+    const key = `${r.viaNodeId}|${r.fromWayId}`;
+    if (!restrictions.has(key)) {
+      restrictions.set(key, { type: isOnly ? "only" : "no", toWayId: r.toWayId });
+    }
+  }
+  return restrictions;
+}
+
 /**
- * Builds a directed graph from raw OSM nodes/ways.
- * Returns { adjacency: Map<nodeId, Edge[]>, nodes: Map<nodeId, NodeInfo> }
- * Edge = { to, distance, timeSec, isSignalEntry }
+ * Builds a directed graph from raw OSM nodes/ways/restrictions.
+ * Returns { adjacency: Map<nodeId, Edge[]>, nodes: Map<nodeId, NodeInfo>, restrictions }
+ * Edge = { to, distance, timeSec, isSignalEntry, wayId, streetName }
  */
-export function buildGraph({ nodes, ways }) {
+export function buildGraph({ nodes, ways, restrictions: rawRestrictions = [] }) {
   const adjacency = new Map();
 
-  const addEdge = (fromId, toId, tags, travelDirection) => {
+  const addEdge = (fromId, toId, way, travelDirection) => {
     const from = nodes.get(fromId);
     const to = nodes.get(toId);
     if (!from || !to) return;
@@ -73,7 +92,7 @@ export function buildGraph({ nodes, ways }) {
     const distance = haversineMeters(from.lat, from.lon, to.lat, to.lon);
     if (distance === 0) return;
 
-    const speedKmh = speedForHighway(tags.highway);
+    const speedKmh = speedForHighway(way.tags.highway);
     const timeSec = (distance / 1000 / speedKmh) * 3600;
 
     let isSignalEntry = false;
@@ -88,6 +107,8 @@ export function buildGraph({ nodes, ways }) {
       distance,
       timeSec,
       isSignalEntry,
+      wayId: way.id,
+      streetName: way.tags.name || way.tags.ref || null,
     });
   };
 
@@ -99,12 +120,12 @@ export function buildGraph({ nodes, ways }) {
       const a = nodeIds[i];
       const b = nodeIds[i + 1];
 
-      if (direction !== "backward") addEdge(a, b, way.tags, "forward");
-      if (direction !== "forward") addEdge(b, a, way.tags, "backward");
+      if (direction !== "backward") addEdge(a, b, way, "forward");
+      if (direction !== "forward") addEdge(b, a, way, "backward");
     }
   }
 
-  return { adjacency, nodes };
+  return { adjacency, nodes, restrictions: buildRestrictionMap(rawRestrictions) };
 }
 
 export function findNearestNode(nodes, lat, lon) {

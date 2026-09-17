@@ -1,6 +1,6 @@
-(() => {
-  "use strict";
+import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
 
+(() => {
   const ROUTE_META = {
     fewestLights: { label: "Wenigste Ampeln", color: "#ff5470" },
     fastest: { label: "Schnellste Route", color: "#2ec4b6" },
@@ -14,9 +14,11 @@
     lastResult: null, // { start, end, routes }
     selectedRouteKey: "fewestLights",
     favorites: loadFavorites(),
+    livePosition: null, // { lat, lon } while navigating, canvas-fallback only
   };
 
   const el = {
+    planningSection: document.getElementById("planning-section"),
     fromAddress: document.getElementById("from-address"),
     toAddress: document.getElementById("to-address"),
     fromSuggestions: document.getElementById("from-suggestions"),
@@ -32,6 +34,14 @@
     legend: document.getElementById("legend"),
     favoritesList: document.getElementById("favorites-list"),
     saveFavoriteBtn: document.getElementById("save-favorite-btn"),
+    startNavBtn: document.getElementById("start-nav-btn"),
+    stopNavBtn: document.getElementById("stop-nav-btn"),
+    navPanel: document.getElementById("nav-panel"),
+    navInstruction: document.getElementById("nav-instruction"),
+    navDistanceToManeuver: document.getElementById("nav-distance-to-maneuver"),
+    navDistanceRemaining: document.getElementById("nav-distance-remaining"),
+    navTimeRemaining: document.getElementById("nav-time-remaining"),
+    navStatus: document.getElementById("nav-status"),
   };
 
   const ctx = el.canvas.getContext("2d");
@@ -196,6 +206,7 @@
     lastRenderedResult: null,
     startMarker: null,
     endMarker: null,
+    liveMarker: null,
   };
 
   function initMapLibre() {
@@ -340,6 +351,33 @@
     }
   }
 
+  function setLiveMarker(lat, lon, follow) {
+    if (USE_MAPLIBRE) {
+      const map = mapLibreState.map;
+      if (!map) return;
+      if (!mapLibreState.liveMarker) {
+        const el = document.createElement("div");
+        el.className = "live-position-dot";
+        mapLibreState.liveMarker = new maplibregl.Marker({ element: el }).setLngLat([lon, lat]).addTo(map);
+      } else {
+        mapLibreState.liveMarker.setLngLat([lon, lat]);
+      }
+      if (follow) map.easeTo({ center: [lon, lat], duration: 500 });
+    } else {
+      state.livePosition = { lat, lon };
+      if (state.lastResult) drawCanvasMap(state.lastResult);
+    }
+  }
+
+  function clearLiveMarker() {
+    if (mapLibreState.liveMarker) {
+      mapLibreState.liveMarker.remove();
+      mapLibreState.liveMarker = null;
+    }
+    state.livePosition = null;
+    if (!USE_MAPLIBRE && state.lastResult) drawCanvasMap(state.lastResult);
+  }
+
   // ---------- Canvas map (fallback when real map tiles aren't available) ----------
 
   function resizeCanvasToDisplaySize() {
@@ -436,6 +474,17 @@
     // start / end markers
     drawPin(project([start.lon, start.lat]), "#35c4c9", "S");
     drawPin(project([end.lon, end.lat]), "#ff5470", "Z");
+
+    if (state.livePosition) {
+      const [x, y] = project([state.livePosition.lon, state.livePosition.lat]);
+      ctx.beginPath();
+      ctx.arc(x, y, 7, 0, Math.PI * 2);
+      ctx.fillStyle = "#4d8dff";
+      ctx.fill();
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
   }
 
   function drawPin([x, y], color, label) {
@@ -466,6 +515,146 @@
     if (mapLibreState.map) mapLibreState.map.resize();
     if (state.lastResult && !USE_MAPLIBRE) drawCanvasMap(state.lastResult);
   });
+
+  // ---------- Real-time turn-by-turn navigation ----------
+
+  const REROUTE_COOLDOWN_MS = 12000;
+
+  const nav = {
+    active: false,
+    watchId: null,
+    route: null, // the route currently being navigated (one of state.lastResult.routes[key])
+    maneuverDistances: null,
+    lastRerouteAt: 0,
+    rerouting: false,
+  };
+
+  function formatDistance(meters) {
+    if (meters < 1000) return `${Math.round(meters / 10) * 10} m`;
+    return `${(meters / 1000).toFixed(1)} km`;
+  }
+
+  function setNavRoute(route) {
+    nav.route = route;
+    nav.maneuverDistances = maneuverDistancesAlongRoute(route.coordinates, route.maneuvers);
+  }
+
+  el.startNavBtn.addEventListener("click", () => {
+    if (!navigator.geolocation) {
+      setNavStatus("Geolocation wird von diesem Browser nicht unterstützt.", "error");
+      return;
+    }
+    const route = state.lastResult?.routes?.[state.selectedRouteKey];
+    if (!route) return;
+
+    setNavRoute(route);
+    nav.active = true;
+    el.planningSection.classList.add("hidden");
+    el.navPanel.classList.remove("hidden");
+    setNavStatus("Suche GPS-Position …");
+
+    nav.watchId = navigator.geolocation.watchPosition(onPositionUpdate, onPositionError, {
+      enableHighAccuracy: true,
+      maximumAge: 2000,
+      timeout: 15000,
+    });
+  });
+
+  el.stopNavBtn.addEventListener("click", stopNavigation);
+
+  function stopNavigation() {
+    if (nav.watchId != null) navigator.geolocation.clearWatch(nav.watchId);
+    nav.active = false;
+    nav.watchId = null;
+    nav.route = null;
+    nav.maneuverDistances = null;
+    clearLiveMarker();
+    el.navPanel.classList.add("hidden");
+    el.planningSection.classList.remove("hidden");
+  }
+
+  function onPositionError(err) {
+    setNavStatus(`GPS-Fehler: ${err.message}`, "error");
+  }
+
+  async function onPositionUpdate(position) {
+    if (!nav.active || !nav.route) return;
+    const { latitude: lat, longitude: lon } = position.coords;
+
+    setLiveMarker(lat, lon, true);
+
+    const progress = computeProgress(lat, lon, nav.route, nav.maneuverDistances);
+
+    if (progress.hasArrived) {
+      setNavStatus("");
+      el.navInstruction.textContent = "🏁 Ziel erreicht!";
+      el.navDistanceToManeuver.textContent = "";
+      stopNavigationSoon();
+      return;
+    }
+
+    if (progress.isOffRoute && !nav.rerouting) {
+      const now = Date.now();
+      if (now - nav.lastRerouteAt > REROUTE_COOLDOWN_MS) {
+        nav.lastRerouteAt = now;
+        rerouteFrom(lat, lon);
+      } else {
+        setNavStatus("Abweichung von der Route erkannt …");
+      }
+    } else if (!nav.rerouting) {
+      setNavStatus("");
+    }
+
+    const maneuver = nav.route.maneuvers[progress.activeManeuverIndex];
+    el.navInstruction.textContent = maneuver.instruction;
+    el.navDistanceToManeuver.textContent =
+      progress.activeManeuverIndex === nav.route.maneuvers.length - 1
+        ? `noch ${formatDistance(progress.distanceRemainingMeters)}`
+        : `in ${formatDistance(progress.distanceToManeuverMeters)}`;
+
+    el.navDistanceRemaining.textContent = `${formatDistance(progress.distanceRemainingMeters)} verbleibend`;
+    const fractionRemaining = nav.route.distanceMeters > 0 ? progress.distanceRemainingMeters / nav.route.distanceMeters : 0;
+    el.navTimeRemaining.textContent = formatDuration(nav.route.estimatedTimeSec * fractionRemaining);
+  }
+
+  function stopNavigationSoon() {
+    setTimeout(() => {
+      if (nav.active) stopNavigation();
+    }, 4000);
+  }
+
+  async function rerouteFrom(lat, lon) {
+    if (!state.toPlace) return;
+    nav.rerouting = true;
+    setNavStatus("Route wird neu berechnet …");
+    try {
+      const params = new URLSearchParams({
+        fromLat: lat,
+        fromLon: lon,
+        toLat: state.toPlace.lat,
+        toLon: state.toPlace.lon,
+      });
+      const res = await fetch(`/api/route?${params}`);
+      const result = await parseResponse(res);
+      const fallbackKey = pickDefaultRoute(result.routes);
+      const newRoute = result.routes[state.selectedRouteKey] || (fallbackKey && result.routes[fallbackKey]);
+      if (!newRoute) throw new Error("Keine neue Route gefunden");
+
+      state.lastResult = result;
+      setNavRoute(newRoute);
+      drawMap(result);
+      setNavStatus("Neue Route berechnet.", "ok");
+    } catch (err) {
+      setNavStatus(`Neuberechnung fehlgeschlagen: ${err.message || err}`, "error");
+    } finally {
+      nav.rerouting = false;
+    }
+  }
+
+  function setNavStatus(text, kind) {
+    el.navStatus.textContent = text;
+    el.navStatus.className = "nav-status" + (kind ? " " + kind : "");
+  }
 
   // ---------- Favorites ----------
 
