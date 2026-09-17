@@ -50,6 +50,33 @@ Für automatischen Neustart bei Änderungen:
 npm run dev -w server   # oder: node --watch server/src/index.js
 ```
 
+## Deployment (Netlify)
+
+Die App ist zusätzlich für Netlify vorbereitet:
+
+- `public/` wird als statische Website ausgeliefert (`netlify.toml` → `publish = "public"`).
+- Die vier API-Routen laufen dort als **Netlify Functions** (`netlify/functions/*.mts`) statt als Dauer-Prozess – jede Function importiert dieselbe Logik aus `server/src/api.js`, die auch der lokale Node-Server nutzt (`getGeocodeResults`, `getLiveRoute`, `getDemoPlacesList`, `getDemoRoute`). Dadurch verhalten sich lokaler Server und Netlify-Deployment identisch, ohne Code doppelt zu pflegen.
+- Die Functions sind über `config.path` exakt auf dieselben Pfade gemappt, die das Frontend ohnehin aufruft (`/api/geocode`, `/api/route`, `/api/demo/places`, `/api/demo/route`, `/api/health`) – am Frontend musste dafür nichts geändert werden.
+- `package.json` (Repo-Root) enthält `@netlify/functions` als Dev-Dependency für die TypeScript-Typen der Functions.
+
+**Live-Route auf Netlify beachten**: Serverlose Functions haben ein Zeitlimit (üblicherweise 10 s). `netlify/functions/route.mts` bricht die Overpass-Abfrage deshalb nach 9 s sauber mit einer Fehlermeldung ab, statt dass die Plattform die Function hart killt. Für sehr große Bounding-Boxen (sehr lange Pendelstrecken) kann das knapp werden.
+
+### Ein Projekt wurde bereits angelegt
+
+Über die Netlify-Tools wurde das Projekt **`trafilights`** erstellt (<https://app.netlify.com/projects/trafilights>, spätere URL: `https://trafilights.netlify.app`). Der eigentliche Deploy (Hochladen + Build) ließ sich aus dieser Entwicklungs-Sandbox heraus **nicht** auslösen, da dafür sowohl `npx` (npm-Registry) als auch ein Netlify-Proxy-Endpunkt erreichbar sein müssten – beides ist hier per Netzwerk-Policy blockiert (siehe oben).
+
+**So schließt du den Deploy ab (einmalig, 2 Minuten):**
+
+1. Im Netlify-Dashboard das Projekt `trafilights` öffnen → **Site configuration → Build & deploy → Continuous deployment** → **Link repository**.
+2. `lukasstodtko-netizen/traficlights` auswählen, Branch `claude/sharp-mayer-13byde` (oder den aktuell gewünschten Hauptbranch).
+3. Build-Einstellungen sind bereits über `netlify.toml` festgelegt (kein Build-Befehl nötig, nur „Publish“). Deploy auslösen.
+
+Ab dann deployt Netlify automatisch bei jedem Push. Alternativ, falls du lieber per CLI deployst (von einem Rechner mit Internetzugang, nicht aus dieser Sandbox):
+
+```bash
+npx -y netlify-cli deploy --prod --site df9ff3a5-eeb4-4a12-b797-570836b0b46e
+```
+
 ## Tests
 
 Reine Node-Core-Tests (keine Abhängigkeiten nötig), prüfen Graphaufbau, Einbahnstraßen-Logik und dass die Ampel-Minimierung tatsächlich weniger Ampeln liefert:
