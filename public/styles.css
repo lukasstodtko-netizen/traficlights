@@ -286,6 +286,30 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  position: relative;
+}
+
+.swap-btn {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--panel-border);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-soft);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 2;
+}
+.swap-btn svg {
+  width: 18px;
+  height: 18px;
 }
 
 label {

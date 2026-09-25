@@ -10,10 +10,11 @@ import { maneuverDistancesAlongRoute, computeProgress, bearingDegrees, haversine
 
   const ROUTE_META = {
     fewestLights: { label: "Fewest lights", color: "#ff5470" },
+    balanced: { label: "Balanced", color: "#ff9f0a" },
     fastest: { label: "Fastest route", color: "#2ec4b6" },
     shortest: { label: "Shortest route", color: "#7c9cff" },
   };
-  const ROUTE_ORDER = ["fewestLights", "fastest", "shortest"];
+  const ROUTE_ORDER = ["fewestLights", "balanced", "fastest", "shortest"];
 
   const state = {
     fromPlace: null, // { lat, lon, label }
@@ -34,6 +35,7 @@ import { maneuverDistancesAlongRoute, computeProgress, bearingDegrees, haversine
     toAddress: document.getElementById("to-address"),
     fromSuggestions: document.getElementById("from-suggestions"),
     toSuggestions: document.getElementById("to-suggestions"),
+    swapBtn: document.getElementById("swap-btn"),
     form: document.getElementById("route-form"),
     calcBtn: document.getElementById("calc-btn"),
     status: document.getElementById("status"),
@@ -158,6 +160,14 @@ import { maneuverDistancesAlongRoute, computeProgress, bearingDegrees, haversine
   });
   setupAutocomplete(el.toAddress, el.toSuggestions, (place) => {
     state.toPlace = place;
+  });
+
+  el.swapBtn.addEventListener("click", () => {
+    [el.fromAddress.value, el.toAddress.value] = [el.toAddress.value, el.fromAddress.value];
+    [state.fromPlace, state.toPlace] = [state.toPlace, state.fromPlace];
+    el.fromSuggestions.innerHTML = "";
+    el.toSuggestions.innerHTML = "";
+    if (state.fromPlace && state.toPlace) el.form.requestSubmit();
   });
 
   // ---------- Route calculation ----------
@@ -633,12 +643,10 @@ import { maneuverDistancesAlongRoute, computeProgress, bearingDegrees, haversine
   }
 
   function renderLegend() {
-    el.legend.innerHTML = `
-      <div class="row"><span class="dot" style="background:${ROUTE_META.fewestLights.color}"></span> Fewest lights</div>
-      <div class="row"><span class="dot" style="background:${ROUTE_META.fastest.color}"></span> Fastest route</div>
-      <div class="row"><span class="dot" style="background:${ROUTE_META.shortest.color}"></span> Shortest route</div>
-      <div class="row"><span class="dot" style="background:#ffd23f"></span> Traffic light (selected route)</div>
-    `;
+    const routeRows = ROUTE_ORDER.map(
+      (key) => `<div class="row"><span class="dot" style="background:${ROUTE_META[key].color}"></span> ${ROUTE_META[key].label}</div>`
+    ).join("");
+    el.legend.innerHTML = `${routeRows}<div class="row"><span class="dot" style="background:#ffd23f"></span> Traffic light (selected route)</div>`;
   }
 
   window.addEventListener("resize", () => {

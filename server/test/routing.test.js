@@ -20,6 +20,7 @@ test("fewest-lights route avoids traffic signals that the direct route hits", ()
   const routes = computeRoutes(graph, start.node.id, end.node.id);
 
   assert.ok(routes.fewestLights, "fewestLights route should exist");
+  assert.ok(routes.balanced, "balanced route should exist");
   assert.ok(routes.shortest, "shortest route should exist");
   assert.ok(routes.fastest, "fastest route should exist");
 
@@ -35,6 +36,60 @@ test("fewest-lights route avoids traffic signals that the direct route hits", ()
   // Avoiding the lights costs distance - otherwise the plain shortest route
   // would already have 0 lights and the comparison would be meaningless.
   assert.ok(routes.fewestLights.distanceMeters > routes.shortest.distanceMeters);
+});
+
+test("balanced route trades off a cheap detour but not an expensive one", () => {
+  // A straight line A-B-C-D-E with a traffic signal at B and another at D, each
+  // hop ~100m. A side street lets you skip B for only a small extra distance;
+  // skipping D is only possible via a much longer detour.
+  const A = 1;
+  const B = 2;
+  const C = 3;
+  const D = 4;
+  const E = 5;
+  const B1 = 6; // cheap detour around B's signal
+  const D1 = 7; // expensive detour around D's signal
+  const LAT_100M = 0.0009;
+  const node = (id, latSteps, lonOffsetDeg, signal) => [
+    id,
+    {
+      id,
+      lat: 52.5 + latSteps * LAT_100M,
+      lon: 13.4 + lonOffsetDeg,
+      isTrafficSignal: !!signal,
+      tags: signal ? { highway: "traffic_signals" } : {},
+    },
+  ];
+  const nodes = new Map([
+    node(A, 0, 0),
+    node(B, 1, 0, true),
+    node(C, 2, 0),
+    node(D, 3, 0, true),
+    node(E, 4, 0),
+    node(B1, 1, 0.0004),
+    node(D1, 3, 0.005),
+  ]);
+  const ways = [
+    { id: 10, nodeIds: [A, B, C, D, E], tags: { highway: "residential", name: "Main" } },
+    { id: 11, nodeIds: [A, B1, C], tags: { highway: "residential", name: "Side1" } },
+    { id: 12, nodeIds: [C, D1, E], tags: { highway: "residential", name: "Side2" } },
+  ];
+
+  const graph = buildGraph({ nodes, ways });
+  const routes = computeRoutes(graph, A, E);
+
+  assert.equal(routes.shortest.trafficLightCount, 2, "the direct route hits both signals");
+  assert.equal(routes.fewestLights.trafficLightCount, 0, "fully avoiding lights is possible, at a large distance cost");
+
+  assert.equal(routes.balanced.trafficLightCount, 1, "balanced should take the cheap detour but not the expensive one");
+  assert.ok(
+    routes.balanced.distanceMeters < routes.fewestLights.distanceMeters,
+    "balanced must not pay for the expensive detour that fewestLights takes"
+  );
+  assert.ok(
+    routes.balanced.distanceMeters > routes.shortest.distanceMeters,
+    "balanced must still be longer than the plain shortest route (it took the cheap detour)"
+  );
 });
 
 test("dijkstra respects oneway streets", () => {

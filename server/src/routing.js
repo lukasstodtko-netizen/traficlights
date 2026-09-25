@@ -5,6 +5,11 @@ import { bearingDegrees } from "./geo.js";
 // lights first, and only uses distance as a tiebreaker among equal-light routes.
 const LIGHT_PENALTY_METERS = 200000;
 
+// For the "balanced" route: a light only "costs" as much as a moderate detour
+// (a couple of city blocks), not an unbounded one. The router will skip a light
+// when a nearby alternative street is available, but won't cross town to dodge it.
+const BALANCED_LIGHT_PENALTY_METERS = 300;
+
 class MinHeap {
   constructor() {
     this.items = [];
@@ -251,12 +256,21 @@ export function computeRoutes({ adjacency, nodes, restrictions }, startId, endId
     (edge) => edge.distance + (edge.isSignalEntry ? LIGHT_PENALTY_METERS : 0)
   );
 
+  const balanced = dijkstra(
+    adjacency,
+    restrictionMap,
+    startId,
+    endId,
+    (edge) => edge.distance + (edge.isSignalEntry ? BALANCED_LIGHT_PENALTY_METERS : 0)
+  );
+
   const fastest = dijkstra(adjacency, restrictionMap, startId, endId, (edge) => edge.timeSec);
 
   const shortest = dijkstra(adjacency, restrictionMap, startId, endId, (edge) => edge.distance);
 
   return {
     fewestLights: summarize(fewestLights, nodes, extraSecondsPerLight),
+    balanced: summarize(balanced, nodes, extraSecondsPerLight),
     fastest: summarize(fastest, nodes, extraSecondsPerLight),
     shortest: summarize(shortest, nodes, extraSecondsPerLight),
   };
