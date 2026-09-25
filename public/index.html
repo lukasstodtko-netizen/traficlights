@@ -68,62 +68,69 @@
 
   <!-- Floating glass panel: search + favorites + route options. A card on desktop, a bottom sheet on phones. -->
   <div class="floating-panel" id="planning-section">
-    <div class="panel-handle"></div>
+    <button type="button" class="panel-handle" id="panel-handle" aria-label="Toggle map size"></button>
 
     <header class="app-header">
       <div>
         <h1>SmoothRide</h1>
         <p class="tagline">The route with the fewest lights ahead of you</p>
       </div>
+      <button type="button" class="panel-toggle-btn" id="panel-toggle-btn" aria-label="Show more of the map">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
     </header>
 
-    <form id="route-form">
-      <div class="field-group">
-        <label class="autocomplete search-field">
-          <svg class="field-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" />
-            <path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-          </svg>
-          <input type="text" id="from-address" autocomplete="off" placeholder="Starting point" />
-          <ul class="suggestions" id="from-suggestions"></ul>
-        </label>
-        <label class="autocomplete search-field">
-          <svg class="field-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path
-              d="M12 21s7-6.2 7-11.5A7 7 0 105 9.5C5 14.8 12 21 12 21z"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linejoin="round"
-            />
-            <circle cx="12" cy="9.5" r="2.3" stroke="currentColor" stroke-width="2" />
-          </svg>
-          <input type="text" id="to-address" autocomplete="off" placeholder="Destination" />
-          <ul class="suggestions" id="to-suggestions"></ul>
-        </label>
+    <div class="panel-body" id="panel-body">
+      <form id="route-form">
+        <div class="field-group">
+          <label class="autocomplete search-field">
+            <svg class="field-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" />
+              <path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+            <input type="text" id="from-address" autocomplete="off" placeholder="Starting point" />
+            <ul class="suggestions" id="from-suggestions"></ul>
+          </label>
+          <label class="autocomplete search-field">
+            <svg class="field-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path
+                d="M12 21s7-6.2 7-11.5A7 7 0 105 9.5C5 14.8 12 21 12 21z"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linejoin="round"
+              />
+              <circle cx="12" cy="9.5" r="2.3" stroke="currentColor" stroke-width="2" />
+            </svg>
+            <input type="text" id="to-address" autocomplete="off" placeholder="Destination" />
+            <ul class="suggestions" id="to-suggestions"></ul>
+          </label>
+        </div>
+
+        <button type="submit" id="calc-btn">Get route</button>
+      </form>
+
+      <p class="status" id="status" role="status"></p>
+
+      <div class="favorites">
+        <div class="favorites-header">
+          <h2>Favorites</h2>
+          <button type="button" id="save-favorite-btn" disabled>+ Save</button>
+        </div>
+        <ul id="favorites-list" class="favorites-list"></ul>
       </div>
 
-      <button type="submit" id="calc-btn">Get route</button>
-    </form>
-
-    <p class="status" id="status" role="status"></p>
-
-    <div class="favorites">
-      <div class="favorites-header">
-        <h2>Favorites</h2>
-        <button type="button" id="save-favorite-btn" disabled>+ Save</button>
+      <div id="results" class="results hidden">
+        <h2>Route options</h2>
+        <div id="route-cards" class="route-cards"></div>
+        <button type="button" id="start-nav-btn">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M8 5v14l11-7L8 5z" fill="currentColor" />
+          </svg>
+          Go
+        </button>
       </div>
-      <ul id="favorites-list" class="favorites-list"></ul>
-    </div>
-
-    <div id="results" class="results hidden">
-      <h2>Route options</h2>
-      <div id="route-cards" class="route-cards"></div>
-      <button type="button" id="start-nav-btn">
-        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <path d="M8 5v14l11-7L8 5z" fill="currentColor" />
-        </svg>
-        Go
-      </button>
     </div>
   </div>
 

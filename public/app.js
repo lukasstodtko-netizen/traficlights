@@ -1,4 +1,4 @@
-import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
+import { maneuverDistancesAlongRoute, computeProgress, bearingDegrees, haversineMeters } from "/nav-math.js";
 
 (() => {
   // iOS Safari ignores `user-scalable=no` in the viewport meta tag for accessibility
@@ -22,10 +22,14 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
     selectedRouteKey: "fewestLights",
     favorites: loadFavorites(),
     livePosition: null, // { lat, lon } - kept up to date whenever geolocation is available
+    heading: 0, // degrees clockwise from north, updated by updateHeading()
+    lastPositionForHeading: null,
   };
 
   const el = {
     planningSection: document.getElementById("planning-section"),
+    panelHandle: document.getElementById("panel-handle"),
+    panelToggleBtn: document.getElementById("panel-toggle-btn"),
     fromAddress: document.getElementById("from-address"),
     toAddress: document.getElementById("to-address"),
     fromSuggestions: document.getElementById("from-suggestions"),
@@ -55,6 +59,17 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
 
   const ctx = el.canvas.getContext("2d");
 
+  // ---------- Collapsible panel (tap the handle or the chevron to see more of the map) ----------
+
+  function togglePanelCollapsed() {
+    const collapsed = el.planningSection.classList.toggle("collapsed");
+    const label = collapsed ? "Show the route panel" : "Show more of the map";
+    el.panelHandle.setAttribute("aria-label", label);
+    el.panelToggleBtn.setAttribute("aria-label", label);
+  }
+  el.panelHandle.addEventListener("click", togglePanelCollapsed);
+  el.panelToggleBtn.addEventListener("click", togglePanelCollapsed);
+
   // Real map tiles (MapLibre GL JS + OSM raster tiles) are loaded from a CDN in index.html.
   // If that CDN or the tile servers can't be reached, we fall back to the built-in Canvas
   // map further below so the app still works (e.g. offline, or behind a restrictive proxy).
@@ -62,14 +77,42 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
 
   // ---------- Live address autocomplete ----------
 
+  const CURRENT_LOCATION_ICON = `
+    <svg class="suggestion-current-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" fill="currentColor" />
+      <path d="M12 2v4M12 18v4M2 12h4M18 12h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+    </svg>`;
+
   function setupAutocomplete(input, list, onSelect) {
     let debounceTimer = null;
     let currentResults = [];
+
+    function showCurrentLocationOption() {
+      list.innerHTML = "";
+      if (!state.livePosition) return;
+      const li = document.createElement("li");
+      li.className = "suggestion-current-location";
+      li.innerHTML = `${CURRENT_LOCATION_ICON}<span class="suggestion-primary">Current location</span>`;
+      li.addEventListener("click", () => {
+        input.value = "Current location";
+        list.innerHTML = "";
+        onSelect({ lat: state.livePosition.lat, lon: state.livePosition.lon, label: "Current location" });
+      });
+      list.appendChild(li);
+    }
+
+    input.addEventListener("focus", () => {
+      if (input.value.trim().length === 0) showCurrentLocationOption();
+    });
 
     input.addEventListener("input", () => {
       onSelect(null); // typing invalidates a previous selection
       const query = input.value.trim();
       clearTimeout(debounceTimer);
+      if (query.length === 0) {
+        showCurrentLocationOption();
+        return;
+      }
       if (query.length < 3) {
         list.innerHTML = "";
         return;
@@ -369,24 +412,68 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
     }
   }
 
-  function setLiveMarker(lat, lon, follow, zoom) {
+  // A Google-Maps-style heading arrow instead of a plain dot, so the user's own
+  // position also shows which way they're facing/moving.
+  const LIVE_ARROW_SVG = `
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2 L20 20 L12 15.5 L4 20 Z" fill="#0a84ff" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round" />
+    </svg>`;
+
+  // lat/lon place the marker; follow/zoom/bearing (all optional) drive the camera:
+  // follow recenters the map on the fix, zoom forces a zoom level (e.g. NAV_ZOOM
+  // while navigating), bearing rotates both the arrow icon and - only when
+  // following - the map itself to match the current direction of travel.
+  function setLiveMarker(lat, lon, { follow = false, zoom, bearing } = {}) {
     state.livePosition = { lat, lon };
     if (USE_MAPLIBRE) {
       const map = mapLibreState.map;
       if (!map) return;
       if (!mapLibreState.liveMarker) {
-        const dot = document.createElement("div");
-        dot.className = "live-position-dot";
-        mapLibreState.liveMarker = new maplibregl.Marker({ element: dot }).setLngLat([lon, lat]).addTo(map);
+        const arrow = document.createElement("div");
+        arrow.className = "live-position-arrow";
+        arrow.innerHTML = `<div class="live-position-pulse"></div>${LIVE_ARROW_SVG}`;
+        mapLibreState.liveMarker = new maplibregl.Marker({
+          element: arrow,
+          rotationAlignment: "map",
+          pitchAlignment: "map",
+        })
+          .setLngLat([lon, lat])
+          .addTo(map);
       } else {
         mapLibreState.liveMarker.setLngLat([lon, lat]);
       }
-      if (follow) map.easeTo({ center: [lon, lat], zoom: zoom ?? map.getZoom(), duration: 600 });
+      if (typeof bearing === "number" && typeof mapLibreState.liveMarker.setRotation === "function") {
+        mapLibreState.liveMarker.setRotation(bearing);
+      }
+      if (follow) {
+        const easeOptions = { center: [lon, lat], zoom: zoom ?? map.getZoom(), duration: 600 };
+        if (typeof bearing === "number") easeOptions.bearing = bearing;
+        map.easeTo(easeOptions);
+      }
     } else if (state.lastResult) {
       drawCanvasMap(state.lastResult);
     } else {
       drawCanvasLiveOnly(lat, lon);
     }
+  }
+
+  // Priority: real device heading from the GPS fix when available; otherwise, the
+  // bearing between the last fix and this one, once we've moved far enough for
+  // that to be meaningful (avoids the arrow spinning randomly from GPS jitter
+  // while stationary). Falls back to the previous heading if neither applies yet.
+  const MIN_HEADING_UPDATE_DISTANCE_M = 3;
+
+  function updateHeading(position, lat, lon) {
+    const gpsHeading = position?.coords?.heading;
+    if (typeof gpsHeading === "number" && !Number.isNaN(gpsHeading)) {
+      state.heading = gpsHeading;
+    } else if (state.lastPositionForHeading) {
+      const moved = haversineMeters(state.lastPositionForHeading.lat, state.lastPositionForHeading.lon, lat, lon);
+      if (moved > MIN_HEADING_UPDATE_DISTANCE_M) {
+        state.heading = bearingDegrees(state.lastPositionForHeading.lat, state.lastPositionForHeading.lon, lat, lon);
+      }
+    }
+    state.lastPositionForHeading = { lat, lon };
   }
 
   // ---------- Canvas map (fallback when real map tiles aren't available) ----------
@@ -409,20 +496,37 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
     return prefersDark ? "#1c1c1e" : "#e5e2da";
   }
 
+  // The user's own position on the Canvas fallback map: a heading-facing arrow,
+  // matching the MapLibre live marker. The canvas map itself stays north-up (no
+  // camera to rotate here, unlike MapLibre), but the arrow still points the right
+  // way using the same state.heading tracked in updateHeading().
+  function drawLiveArrow(x, y, headingDeg) {
+    const size = 10;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate((headingDeg * Math.PI) / 180);
+    ctx.beginPath();
+    ctx.moveTo(0, -size);
+    ctx.lineTo(size * 0.62, size * 0.8);
+    ctx.lineTo(0, size * 0.35);
+    ctx.lineTo(-size * 0.62, size * 0.8);
+    ctx.closePath();
+    ctx.fillStyle = "#0a84ff";
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // Shown before any route has been calculated yet: just the live position, centered,
   // so the map isn't blank while the schematic fallback has nothing else to draw.
   function drawCanvasLiveOnly(lat, lon) {
     const { width, height } = resizeCanvasToDisplaySize();
     ctx.fillStyle = canvasBackgroundColor();
     ctx.fillRect(0, 0, width, height);
-
-    ctx.beginPath();
-    ctx.arc(width / 2, height / 2, 8, 0, Math.PI * 2);
-    ctx.fillStyle = "#4d8dff";
-    ctx.fill();
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    drawLiveArrow(width / 2, height / 2, state.heading);
   }
 
   function drawCanvasMap(result) {
@@ -509,13 +613,7 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
 
     if (state.livePosition) {
       const [x, y] = project([state.livePosition.lon, state.livePosition.lat]);
-      ctx.beginPath();
-      ctx.arc(x, y, 7, 0, Math.PI * 2);
-      ctx.fillStyle = "#4d8dff";
-      ctx.fill();
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 2;
-      ctx.stroke();
+      drawLiveArrow(x, y, state.heading);
     }
   }
 
@@ -586,16 +684,18 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
   }
 
   function handleGeolocationUpdate(position) {
+    const { latitude: lat, longitude: lon } = position.coords;
+    updateHeading(position, lat, lon);
     if (nav.active) {
       onPositionUpdate(position);
       return;
     }
-    const { latitude: lat, longitude: lon } = position.coords;
     // The first fix we ever get (before any route exists) centers the map on the
     // user once; afterwards we leave the view alone so we don't fight the user
-    // panning/zooming around while just browsing.
+    // panning/zooming around while just browsing. The heading arrow itself still
+    // updates on every fix regardless (handled by setLiveMarker above).
     const shouldCenter = !hasCenteredOnUser && !state.lastResult;
-    setLiveMarker(lat, lon, shouldCenter, shouldCenter ? INITIAL_LOCATION_ZOOM : undefined);
+    setLiveMarker(lat, lon, { follow: shouldCenter, zoom: shouldCenter ? INITIAL_LOCATION_ZOOM : undefined, bearing: state.heading });
     if (shouldCenter) hasCenteredOnUser = true;
   }
 
@@ -647,6 +747,10 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
     el.navBottomBar.classList.add("hidden");
     el.planningSection.classList.remove("hidden");
     el.legend.classList.remove("hidden");
+    // Back to a normal, north-up map once turn-by-turn ends.
+    if (USE_MAPLIBRE && mapLibreState.map) {
+      mapLibreState.map.easeTo({ bearing: 0, duration: 500 });
+    }
   }
 
   function onPositionError(err) {
@@ -660,7 +764,9 @@ import { maneuverDistancesAlongRoute, computeProgress } from "/nav-math.js";
   function updateNavigationForPosition(lat, lon) {
     if (!nav.active || !nav.route) return;
 
-    setLiveMarker(lat, lon, true);
+    // Keep the camera zoomed in and rotated so "up" always matches the direction
+    // of travel, like Google Maps' turn-by-turn view.
+    setLiveMarker(lat, lon, { follow: true, zoom: NAV_ZOOM, bearing: state.heading });
 
     const progress = computeProgress(lat, lon, nav.route, nav.maneuverDistances);
 

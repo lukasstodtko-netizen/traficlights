@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   haversineMeters,
+  bearingDegrees,
   projectOntoRoute,
   maneuverDistancesAlongRoute,
   computeProgress,
@@ -73,4 +74,12 @@ test("computeProgress stays on-route for a position with only minor GPS noise", 
   const maneuverDistances = maneuverDistancesAlongRoute(ROUTE_COORDS, MANEUVERS);
   const slightlyOff = computeProgress(52.50005, 13.4 + STEP_LON, ROUTE, maneuverDistances);
   assert.equal(slightlyOff.isOffRoute, false);
+});
+
+test("bearingDegrees points due east/south/west/north for cardinal moves", () => {
+  assert.ok(Math.abs(bearingDegrees(52.5, 13.4, 52.5, 13.401) - 90) < 1, "moving east should read ~90°");
+  assert.ok(Math.abs(bearingDegrees(52.5, 13.4, 52.499, 13.4) - 180) < 1, "moving south should read ~180°");
+  assert.ok(Math.abs(bearingDegrees(52.5, 13.4, 52.5, 13.399) - 270) < 1, "moving west should read ~270°");
+  const north = bearingDegrees(52.5, 13.4, 52.501, 13.4);
+  assert.ok(north < 1 || north > 359, "moving north should read ~0°");
 });

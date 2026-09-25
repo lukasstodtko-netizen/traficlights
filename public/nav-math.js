@@ -17,6 +17,17 @@ export function haversineMeters(lat1, lon1, lat2, lon2) {
   return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(a));
 }
 
+// Compass bearing (degrees clockwise from true north, 0-360) from point 1 to point 2.
+export function bearingDegrees(lat1, lon1, lat2, lon2) {
+  const phi1 = toRad(lat1);
+  const phi2 = toRad(lat2);
+  const deltaLon = toRad(lon2 - lon1);
+  const y = Math.sin(deltaLon) * Math.cos(phi2);
+  const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLon);
+  const theta = Math.atan2(y, x);
+  return ((theta * 180) / Math.PI + 360) % 360;
+}
+
 // Projects (lat, lon) onto the closest point of segment [a, b] (coords as [lon, lat]).
 // Uses a local equirectangular approximation - accurate enough at street scale.
 function projectOntoSegment(lat, lon, a, b) {

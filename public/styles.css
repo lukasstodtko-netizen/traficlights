@@ -132,14 +132,27 @@ body {
   border-radius: 50%;
 }
 
-.live-position-dot {
-  width: 18px;
-  height: 18px;
+/* The user's own position: a heading-facing arrow (like Google Maps' navigation
+   puck) instead of a plain dot, so it visibly points the direction of travel.
+   rotationAlignment: "map" (set where the marker is created in app.js) keeps the
+   arrow's true compass heading stable as the map itself rotates during navigation. */
+.live-position-arrow {
+  position: relative;
+  width: 30px;
+  height: 30px;
+}
+.live-position-pulse {
+  position: absolute;
+  inset: 6px;
   border-radius: 50%;
-  background: var(--accent);
-  border: 3px solid #fff;
-  box-shadow: 0 0 0 0 rgba(10, 132, 255, 0.5);
+  background: rgba(10, 132, 255, 0.35);
   animation: live-pulse 2.2s infinite;
+}
+.live-position-arrow svg {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
 }
 @keyframes live-pulse {
   0% {
@@ -183,6 +196,45 @@ body {
 
 .panel-handle {
   display: none;
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.floating-panel.collapsed .panel-body,
+.floating-panel.collapsed .tagline {
+  display: none;
+}
+
+.panel-toggle-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: var(--input-bg);
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.panel-toggle-btn svg {
+  width: 18px;
+  height: 18px;
+  transition: transform 0.25s ease;
+}
+.floating-panel.collapsed .panel-toggle-btn svg {
+  transform: rotate(180deg);
 }
 
 @media (max-width: 699px) {
@@ -310,6 +362,20 @@ label {
   font-size: 0.78rem;
   color: var(--text-dim);
   margin-top: 1px;
+}
+.suggestion-current-location {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.suggestion-current-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.suggestion-current-location .suggestion-primary {
+  color: var(--accent);
 }
 
 button[type="submit"] {
